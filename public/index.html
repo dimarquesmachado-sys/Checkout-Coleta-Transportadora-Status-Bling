@@ -198,12 +198,12 @@ header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;
 .problema-select-item:active{background:var(--s2)}
 
 /* MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px 16px 88px}
 .modal-img-wrap{position:relative;max-width:100%;max-height:100%}
 .modal-img-wrap img{max-width:100%;max-height:90vh;border-radius:8px;display:block}
 .modal-close{position:absolute;top:-12px;right:-12px;width:40px;height:40px;background:var(--rd);color:#fff;border:none;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;-webkit-tap-highlight-color:transparent;touch-action:manipulation;z-index:1}
-.modal-back{display:block;width:100%;height:48px;background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:12px;font-family:var(--sans);-webkit-tap-highlight-color:transparent;touch-action:manipulation;letter-spacing:.02em}
-.modal-back:active{background:rgba(255,255,255,.22)}
+.modal-back{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:360px;height:52px;background:rgba(30,30,40,.95);color:#fff;border:1.5px solid rgba(255,255,255,.18);border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;font-family:var(--sans);-webkit-tap-highlight-color:transparent;touch-action:manipulation;letter-spacing:.02em;z-index:10001;backdrop-filter:blur(8px)}
+.modal-back:active{background:rgba(60,60,80,.95)}
 
 /* DIA */
 .day-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
@@ -868,7 +868,12 @@ function renderPkgList(){
     return '<div class="pkg-row '+(ativo?'scanned':'')+'">'+
       fotoHtml+
       '<div style="flex:1;min-width:0">'+
-      '<div class="pkg-num">'+p.numero+(p.nf?' <span style="color:var(--tm);font-size:10px"> · NF '+p.nf+'</span>':'')+(p.numLoja?' <span style="color:var(--bl);font-size:10px"> · 🛒'+p.numLoja+'</span>':'')+(p.numeracao?' <span style="color:var(--th);font-size:10px"> · 📦'+p.numeracao.slice(-6)+'</span>':'')+'</div>'+
+      '<div class="pkg-num">'+p.numero+'</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:1px">'+
+        (p.nf?'<span style="font-size:10px;font-family:var(--mono);color:var(--tm)">NF '+p.nf+'</span>':'')+
+        (p.numLoja?'<span style="font-size:10px;font-family:var(--mono);color:var(--bl)">🛒 '+p.numLoja+'</span>':'')+
+        (p.numeracao?'<span style="font-size:10px;font-family:var(--mono);color:var(--th)">📦'+p.numeracao.slice(-6)+'</span>':'')+
+      '</div>'+
       '<div class="pkg-dest">'+p.destinatario+'</div>'+
       '</div>'+
       '<span class="pkg-badge '+(ativo?'b-scan':'b-pend')+'">'+(ativo?'✓':'—')+'</span>'+
@@ -1069,14 +1074,14 @@ function verFotoScan(etiqueta){
   var p=null;
   for(var i=0;i<packages.length;i++){if(packages[i].etiqueta===etiqueta){p=packages[i];break;}}
   openModal('<div class="modal-img-wrap">'+
-    '<img src="'+scanItem.photo+'" alt="etiqueta" style="max-width:100%;max-height:80vh;border-radius:8px;display:block">'+
+    '<img src="'+scanItem.photo+'" alt="etiqueta" style="max-width:100%;max-height:82vh;border-radius:8px;display:block">'+
     '<div style="background:rgba(0,0,0,.7);padding:8px 12px;border-radius:0 0 8px 8px;font-size:12px;font-family:var(--mono);color:#fff">'+
       (p?p.numero+' · '+p.destinatario:etiqueta)+
       '<br><span style="color:var(--tm)">'+scanItem.time+'</span>'+
     '</div>'+
-    '<button class="modal-back" onclick="closeTopModal()">← Voltar</button>'+
     '<button class="modal-close" onclick="closeTopModal()">✕</button>'+
-    '</div>');
+    '</div>'+
+    '<button class="modal-back" onclick="closeTopModal()">← Voltar</button>');
 }
 
 // ═══ CANCELAR / DESFAZER SCAN ═══
@@ -1146,7 +1151,7 @@ function delFoto(i){
 function verFoto(i){
   var src=fotosVeiculo[i];
   if(!src) return;
-  openModal('<div class="modal-img-wrap"><img src="'+src+'" alt="foto" style="max-width:100%;max-height:80vh;border-radius:8px;display:block"><button class="modal-back" onclick="closeTopModal()">← Voltar</button><button class="modal-close" onclick="closeTopModal()">✕</button></div>');
+  openModal('<div class="modal-img-wrap"><img src="'+src+'" alt="foto" style="max-width:100%;max-height:82vh;border-radius:8px;display:block"><button class="modal-close" onclick="closeTopModal()">✕</button></div><button class="modal-back" onclick="closeTopModal()">← Voltar</button>');
 }
 
 // ═══ PROBLEMAS ═══
@@ -1174,7 +1179,7 @@ function renderProblemaList(){
     var p=null;
     for(var i=0;i<packages.length;i++){if(packages[i].etiqueta===et){p=packages[i];break;}}
     return '<div class="problema-item">'+
-      '<span>🚫 '+(p?p.numero:et)+' · '+(p?p.destinatario:'')+'</span>'+
+      '<div><b>🚫 '+(p?p.numero:et)+'</b>'+(p&&p.nf?' <span style="font-size:10px">NF '+p.nf+'</span>':'')+(p&&p.numLoja?' <span style="font-size:10px;color:var(--bl)">🛒'+p.numLoja+'</span>':'')+'<br><span style="font-size:10px;opacity:.7">'+(p?p.destinatario:'')+'</span></div>'+
       '<button onclick="delProblema(\''+et+'\')">✕</button>'+
       '</div>';
   }).join('');
@@ -1188,7 +1193,7 @@ function showEncerrar(){
   document.getElementById('motivoAlert').style.display='none';
   document.getElementById('motivoPendList').innerHTML=
     '<div style="font-size:11px;color:var(--am);margin-bottom:8px;font-family:var(--mono)">'+pend.length+' pacote(s) que NÃO serão despachados:</div>'+
-    pend.map(function(p){return '<div style="font-size:11px;font-family:var(--mono);color:var(--tm);padding:3px 0;border-bottom:1px solid var(--b1)">• '+p.numero+' · '+p.destinatario+'</div>';}).join('');
+    pend.map(function(p){return '<div style="font-size:11px;font-family:var(--mono);color:var(--tm);padding:4px 0;border-bottom:1px solid var(--b1)">• '+p.numero+(p.nf?' · NF '+p.nf:'')+(p.numLoja?' · 🛒'+p.numLoja:'')+'<br><span style="color:var(--th);font-size:10px">'+p.destinatario+'</span></div>';}).join('');
   document.getElementById('motivoArea').scrollIntoView({behavior:'smooth',block:'start'});
 }
 
@@ -1231,7 +1236,7 @@ function finalizeColeta(){
   // Só bloqueia se NÃO for encerramento parcial (com motivo já informado)
   if(pend.length>0&&!encerrandoParcial){
     document.getElementById('missingArea').classList.add('show');
-    document.getElementById('missingList').innerHTML=pend.map(function(p){return '<div class="missing-item">⚠ '+p.numero+' · '+p.destinatario+'</div>';}).join('');
+    document.getElementById('missingList').innerHTML=pend.map(function(p){return '<div class="missing-item">⚠ '+p.numero+(p.nf?' · NF '+p.nf:'')+(p.numLoja?' · 🛒'+p.numLoja:'')+'<br><span style="font-size:10px;color:#F09090">'+p.destinatario+'</span></div>';}).join('');
     document.getElementById('confirmArea').classList.remove('show');
     toast(pend.length+' pacote(s) faltando!','err'); beepError(); return;
   }
@@ -1339,7 +1344,7 @@ function verFotoLote(loteId,idx){
   var lote=null;
   for(var i=0;i<scans.length;i++){if(scans[i].id===loteId){lote=scans[i];break;}}
   if(!lote||!lote.fotosVeiculo||!lote.fotosVeiculo[idx]) return;
-  openModal('<div class="modal-img-wrap"><img src="'+lote.fotosVeiculo[idx]+'" alt="foto lote" style="max-width:100%;max-height:80vh;border-radius:8px;display:block"><button class="modal-back" onclick="closeTopModal()">← Voltar</button><button class="modal-close" onclick="closeTopModal()">✕</button></div>');
+  openModal('<div class="modal-img-wrap"><img src="'+lote.fotosVeiculo[idx]+'" alt="foto lote" style="max-width:100%;max-height:82vh;border-radius:8px;display:block"><button class="modal-close" onclick="closeTopModal()">✕</button></div><button class="modal-back" onclick="closeTopModal()">← Voltar</button>');
 }
 
 // ═══ HISTÓRICO ═══
