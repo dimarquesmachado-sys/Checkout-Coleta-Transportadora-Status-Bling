@@ -438,7 +438,7 @@ function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 function ld(k,d){try{var v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}}
 
 // ═══ HELPERS ═══
-function todayStr(){return new Date().toISOString().split('T')[0];}
+function todayStr(){return new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'});}
 function nowTS(){return new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
 function todayPkgs(){return packages.filter(function(p){return p.date===todayStr();});}
 function lojaToMkt(id){return LOJA_MAP[String(id)]||null;}
@@ -583,8 +583,10 @@ function pullFromBling(){
   var btn=document.getElementById('syncBtn');
   btn.disabled=true; btn.innerHTML='<span class="spin"></span> Buscando...';
   var today=todayStr();
-  var d30=new Date(); d30.setDate(d30.getDate()-30);
-  var dateFrom=d30.toISOString().split('T')[0];
+  // Busca só hoje: evita puxar centenas de pedidos antigos ainda em VERIFICADO
+  // Usa ontem como margem de segurança para pedidos emitidos ontem mas verificados hoje
+  var d1=new Date(); d1.setDate(d1.getDate()-1);
+  var dateFrom=d1.toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'});
   var all=[]; var page=1;
   function fetchPage(){
     apiFetch('/bling/pedidos/vendas?idSituacao=24&dataEmissaoInicial='+dateFrom+'&dataEmissaoFinal='+today+'&pagina='+page+'&limite=100')
