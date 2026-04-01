@@ -666,15 +666,26 @@ function detectTrackingPkgs(pkgs){
                      || (order.nfe&&order.nfe.numero)
                      || (order.notasFiscais&&order.notasFiscais[0]&&order.notasFiscais[0].numero)
                      || (order.nota&&order.nota.numero)
-                     || (order.notaFiscal&&order.notaFiscal.chave&&order.notaFiscal.chave.substring(25,34)) // extrai nº da chave DANFE
                      || '';
+        // Salva a chave DANFE completa (44 dígitos) para matching na bipagem
+        var nfChave = (order.notaFiscal&&order.notaFiscal.chave)
+                   || (order.nfe&&order.nfe.chave)
+                   || (order.notasFiscais&&order.notasFiscais[0]&&order.notasFiscais[0].chave)
+                   || '';
+        if(nfChave) nfChave=String(nfChave).replace(/\s/g,'');
+        // Se não tem numero da NF mas tem chave, extrai o número da chave (pos 25-34 do padrão NF-e)
+        if(!nfDetalhe&&nfChave&&nfChave.length===44){
+          nfDetalhe=String(parseInt(nfChave.substring(25,34),10)); // remove zeros à esquerda
+        }
 
         var p=null;
         for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}
         if(p){
           if(track){p.numeracao=String(track).replace(/\s/g,'').toUpperCase(); console.log('✅ Tracking '+p.mkt.toUpperCase()+' #'+p.numero+': '+p.numeracao);}
-          else{console.warn('⚠ SEM tracking para '+p.mkt.toUpperCase()+' #'+p.numero+' — campos disponíveis em transporte: '+JSON.stringify(Object.keys(order.transporte||{})));}
+          else{console.warn('⚠ SEM tracking para '+p.mkt.toUpperCase()+' #'+p.numero);}
           if(nfDetalhe&&!p.nf){p.nf=String(nfDetalhe).trim(); console.log('✅ NF '+p.mkt.toUpperCase()+' #'+p.numero+': '+p.nf);}
+          // nfChave já foi capturado acima e salvo diretamente
+          if(nfChave&&!p.nfChave){p.nfChave=nfChave; console.log('✅ Chave DANFE #'+p.numero+': '+nfChave.substring(0,20)+'...');}
           sv('expv5_pkgs',packages);
           renderMktGrid();
           // Avisa quando último tracking carregou
@@ -786,7 +797,9 @@ function pullFromBling(){
       var numeracaoLista=(o.transporte&&o.transporte.volumes&&o.transporte.volumes[0]&&o.transporte.volumes[0].numeracao)||
                          (o.transporte&&o.transporte.codigoRastreamento)||'';
       if(numeracaoLista) numeracaoLista=String(numeracaoLista).replace(/\s/g,'').toUpperCase();
-      return {id:o.id,numero:o.numero,etiqueta:etiqueta,nf:nf,numLoja:String(numLoja||''),
+      var nfChave=(o.notaFiscal&&o.notaFiscal.chave)||(o.nfe&&o.nfe.chave)||'';
+      if(nfChave) nfChave=String(nfChave).replace(/\s/g,'');
+      return {id:o.id,numero:o.numero,etiqueta:etiqueta,nf:nf,nfChave:nfChave,numLoja:String(numLoja||''),
         destinatario:(o.contato&&o.contato.nome)||'—',
         servico:svc,lojaId:lojaId,mkt:mkt,urgente:urgente,numeracao:numeracaoLista,
         blingStatus:Number((o.situacao&&o.situacao.id)||0),
@@ -808,6 +821,8 @@ function pullFromBling(){
           if(existingToday[i].urgente) p.urgente=true;
           if(existingToday[i].servico) p.servico=existingToday[i].servico;
           if(existingToday[i].numeracao) p.numeracao=existingToday[i].numeracao;
+          if(existingToday[i].nfChave) p.nfChave=existingToday[i].nfChave;
+          if(existingToday[i].nf) p.nf=existingToday[i].nf;
           break;
         }
       }
@@ -961,10 +976,9 @@ function renderPkgList(){
       '<div class="pkg-num">'+p.numero+'</div>'+
       // Linha 2: NF · marketplace · tracking (tudo visível)
       '<div class="pkg-sub">'+
-        (p.nf?'<span style="color:var(--gr)">NF '+p.nf+'</span>':
-              '<span style="color:var(--th)">NF —</span>')+
-        (p.numLoja?'<span style="color:var(--bl)">🛒 '+p.numLoja+'</span>':'<span style="color:var(--th)">🛒 —</span>')+
-        (p.numeracao?'<span style="color:var(--tm)">📦 '+p.numeracao+'</span>':'<span style="color:var(--th)">📦 —</span>')+
+        (p.nf?'<span style="color:var(--gr)">NF '+p.nf+'</span>':'<span style="color:var(--am);font-size:9px">NF carregando...</span>')+
+        (p.numLoja?'<span style="color:var(--bl)">🛒 '+p.numLoja+'</span>':'')+
+        (p.numeracao?'<span style="color:var(--tm)">📦 '+p.numeracao+'</span>':'')+
       '</div>'+
       '<div class="pkg-dest">'+p.destinatario+'</div>'+
       '</div>'+
@@ -1109,11 +1123,18 @@ function handleScan(rawCode,photo){
 
   function match(p){
     var c=code.toUpperCase().replace(/\s/g,'');
-    return String(p.etiqueta).toUpperCase()===c
-        || String(p.numero)===c
-        || String(p.blingId)===c
-        || (p.numeracao&&String(p.numeracao).toUpperCase()===c)
-        || (p.numLoja&&String(p.numLoja).replace(/\s/g,'').toUpperCase()===c);
+    if(String(p.etiqueta).toUpperCase()===c) return true;
+    if(String(p.numero)===c) return true;
+    if(String(p.blingId)===c) return true;
+    if(p.numeracao&&String(p.numeracao).toUpperCase()===c) return true;
+    if(p.numLoja&&String(p.numLoja).replace(/\s/g,'').toUpperCase()===c) return true;
+    // Chave DANFE completa (44 dígitos) — câmera TikTok lê o código de barras da NF
+    if(p.nfChave&&p.nfChave===c) return true;
+    // Últimos 13 dígitos da chave DANFE (código que algumas câmeras lêem)
+    if(p.nfChave&&p.nfChave.length===44&&p.nfChave.slice(-13)===c.slice(-13)&&c.length>=13) return true;
+    // Número da NF (ex: "12345")
+    if(p.nf&&String(p.nf).trim()===c) return true;
+    return false;
   }
   var pkg=null, wrongPkg=null, already=null;
   for(var i=0;i<packages.length;i++){
