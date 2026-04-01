@@ -365,8 +365,8 @@ app.get('/admin/migrar-verificados', async (req, res) => {
           try {
             await sleep(700);
             const patch = await blingFetch(
-              `${BLING_BASE}/pedidos/${o.id}/situacoes`,
-              { method: 'PATCH', body: JSON.stringify({ situacao: { id: 743515 } }) }
+              `${BLING_BASE}/pedidos/vendas/${o.id}/situacoes/743515`,
+              { method: 'PATCH' }
             );
             if(patch.ok) total++;
             else erros++;
