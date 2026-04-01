@@ -713,7 +713,7 @@ async function pullFromBling(){
     const today=todayStr();
     let all=[];let page=1;let more=true;
     while(more&&page<=10){
-      const r=await apiFetch(`/bling/pedidos/vendas?dataInicial=${today}&dataFinal=${today}&pagina=${page}&limite=100`);
+      const r=await apiFetch(`/bling/pedidos/vendas?dataInicial=${today}&dataFinal=${today}&idSituacao=5&pagina=${page}&limite=100`);
       const d=await r.json();
       const orders=d.data||[];
       all=all.concat(orders);
