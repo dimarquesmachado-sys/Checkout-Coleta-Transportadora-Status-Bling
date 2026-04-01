@@ -689,7 +689,12 @@ function detectTrackingPkgs(pkgs){
           sv('expv5_pkgs',packages);
           renderMktGrid();
           // Avisa quando último tracking carregou
-          if(i>=pkgs.length) toast('✅ Trackings carregados — pode bipar!','ok');
+          if(i>=pkgs.length){
+            toast('✅ Trackings carregados — buscando NFs...','ok');
+            var semNF=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
+            if(semNF.length>0) setTimeout(function(){detectNF(semNF,null);},1200);
+            else toast('✅ Tudo carregado!','ok');
+          }
         }
         next();
       })
@@ -866,8 +871,14 @@ function pullFromBling(){
     if(mlPkgs.length>0){
       detectFlexML(mlPkgs, function(){
         // Só começa tracking dos outros APÓS o FLEX terminar
-        if(semTracking.length>0) detectTrackingPkgs(semTracking);
-        else if(semTracking_count===0) toast('✅ Trackings carregados!','ok');
+        if(semTracking.length>0){
+          detectTrackingPkgs(semTracking);
+        } else {
+          // Sem semTracking: busca NF direto após FLEX
+          var semNF2=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
+          if(semNF2.length>0) setTimeout(function(){detectNF(semNF2,null);},1200);
+          else toast('✅ Tudo carregado!','ok');
+        }
       });
     } else if(semTracking.length>0){
       detectTrackingPkgs(semTracking);
@@ -1732,6 +1743,46 @@ function clearDay(){
   sv('expv5_pkgs',packages); sv('expv5_scans',scans);
   renderMktGrid(); updateBadge(); renderDia();
   toast('Limpo','warn');
+}
+
+// ═══ BUSCA NF ═══
+// A NF não vem no pedido — precisa consultar endpoint separado /nfe
+function detectNF(pkgsSemNF, onDone){
+  var i=0;
+  function next(){
+    if(i>=pkgsSemNF.length){
+      sv('expv5_pkgs',packages);
+      if(onDone) onDone();
+      toast('✅ NFs carregadas!','ok');
+      return;
+    }
+    var pkg=pkgsSemNF[i++];
+    if(pkg.nf){next();return;} // já tem NF
+    setTimeout(function(){
+      apiFetch('/bling/nfe?idPedidoVenda='+pkg.blingId+'&limite=1')
+      .then(function(r){if(!r.ok)return null;return r.json();})
+      .then(function(d){
+        if(!d) return;
+        var nfes=d.data||[];
+        if(nfes.length>0){
+          var nfe=nfes[0];
+          var num=(nfe.numero)||(nfe.nfe&&nfe.nfe.numero)||(nfe.numeroDocumento)||'';
+          var chave=(nfe.chaveAcesso)||(nfe.chave)||(nfe.nfe&&nfe.nfe.chave)||'';
+          var p=null;
+          for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}
+          if(p){
+            if(num){p.nf=String(num).trim(); console.log('✅ NF #'+p.numero+': '+p.nf);}
+            if(chave&&!p.nfChave){p.nfChave=String(chave).replace(/\s/g,'');}
+            renderMktGrid();
+            if(activeMkt) renderPkgList();
+          }
+        }
+        next();
+      })
+      .catch(function(){next();});
+    },1100);
+  }
+  next();
 }
 
 // ═══ SYNC SERVIDOR ═══
