@@ -763,7 +763,7 @@ async function pullFromBling(){
     const dateFrom=daysAgoStr(30);
     let all=[];let page=1;let more=true;
     while(more&&page<=10){
-      const r=await apiFetch(`/bling/pedidos/vendas?idSituacao=24&dataEmissaoInicial=${dateFrom}&dataEmissaoFinal=${today}&pagina=${page}&limite=100`);
+      const r=await apiFetch(`/bling/pedidos/vendas?idSituacao=24&pagina=${page}&limite=100`);
       const d=await r.json();
       const orders=d.data||[];
       all=all.concat(orders);
@@ -785,7 +785,16 @@ async function pullFromBling(){
         date:today, pulledAt:nowTS(),
         status:'pendente', colT:null, blingId:o.id
       };
-    }).filter(p=>p.etiqueta && p.blingStatus===24);
+    }).filter(p=>{
+      if(!p.etiqueta) return false;
+      if(p.blingStatus!==24) return false;
+      // Filtra últimos 30 dias pela data do pedido
+      if(p.dataPedido){
+        const diff=(new Date(today)-new Date(p.dataPedido))/(1000*60*60*24);
+        if(diff>30) return false;
+      }
+      return true;
+    });
 
     packages=packages.filter(p=>p.date!==today);
     packages=[...newPkgs,...packages];
