@@ -85,6 +85,7 @@ header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;
 .c-magalu{background:rgba(70,135,220,.12);color:#5A9AE0;border:1px solid rgba(70,135,220,.25)}
 .c-shein{background:rgba(200,55,150,.1);color:#D060B0;border:1px solid rgba(200,55,150,.2)}
 .c-tiktok{background:rgba(0,240,255,.08);color:#00D4E6;border:1px solid rgba(0,212,230,.2)}
+.c-rd{background:rgba(224,85,85,.12);color:#F09090;border:1px solid rgba(224,85,85,.3)}
 .c-outro{background:var(--s2);color:var(--tm);border:1px solid var(--b2)}
 .mkt-count{font-size:28px;font-weight:700;font-family:var(--mono);padding:2px 14px 10px;line-height:1}
 .mkt-prog{height:3px;background:var(--bg)}
@@ -390,6 +391,10 @@ const MKT = {
   melhorenvio:{n:'Melhor Envio',  cls:'c-outro',  icon:'📮', svcMatch:['melhor envio','melhorenvio','loggi','jadlog','correios']},
   velozz:     {n:'Flex Velozz',   cls:'c-shopee', icon:'🏍', svcMatch:['velozz']},
   lalamove:   {n:'Lalamove',      cls:'c-shopee', icon:'🛵', svcMatch:['lalamove']},
+  flex:       {n:'⚡ FLEX',        cls:'c-rd',     icon:'⚡', svcMatch:['mercado envios flex','magalog - entrega local','vapt','logistica shopee','shopee entrega direta','entrega direta'], virtual:true},
+  melhorenvio:{n:'Melhor Envio',  cls:'c-outro',  icon:'📮', svcMatch:['melhor envio','melhorenvio','loggi','jadlog','correios']},
+  velozz:     {n:'Flex Velozz',   cls:'c-shopee', icon:'🏍', svcMatch:['velozz']},
+  lalamove:   {n:'Lalamove',      cls:'c-shopee', icon:'🛵', svcMatch:['lalamove']},
   outro:      {n:'Outro',         cls:'c-outro',  icon:'📫', svcMatch:[]},
 };
 
@@ -498,8 +503,10 @@ async function pullFromBling(){
       const svcLow=svc.toLowerCase();
       const urgente=['mercado envios flex','magalog - entrega local','vapt','logistica shopee','shopee entrega direta','entrega direta','flex'].some(u=>svcLow.includes(u));
       const etiqueta=(o.numero||o.id||'').toString().trim().toUpperCase();
+      // NF: pode vir em notaFiscal, nfe, nota, etc
+      const nf = o.notaFiscal?.numero || o.nfe?.numero || o.nota?.numero || '';
       return {
-        id:o.id, numero:o.numero, etiqueta,
+        id:o.id, numero:o.numero, etiqueta, nf,
         destinatario:o.contato?.nome||'—',
         servico:svc, lojaId, mkt, urgente,
         blingStatus:Number(o.situacao?.id||0),
@@ -507,7 +514,14 @@ async function pullFromBling(){
         date:today, pulledAt:nowTS(),
         status:'pendente', colT:null, blingId:o.id
       };
-    }).filter(p=>p.etiqueta&&p.blingStatus===24);
+    }).filter(p=>{
+      if(!p.etiqueta || p.blingStatus!==24) return false;
+      if(p.dataPedido){
+        const d=new Date(p.dataPedido+'T12:00:00');
+        if((new Date()-d)/(1000*60*60*24)>30) return false;
+      }
+      return true;
+    });
     packages=packages.filter(p=>p.date!==today);
     packages=[...newPkgs,...packages];
     sv('expv5_pkgs',packages);
@@ -540,23 +554,46 @@ function renderMktGrid(){
     return;
   }
 
+  // FLEX virtual card — all urgent packages
+  const flexPkgs = today.filter(p=>p.urgente);
   const byMkt={};
   today.forEach(p=>{ if(!byMkt[p.mkt]) byMkt[p.mkt]=[]; byMkt[p.mkt].push(p); });
+
   const grid=document.getElementById('mktGrid');
-  grid.innerHTML=Object.keys(byMkt).sort().map(m=>{
+  const cards = [];
+
+  // FLEX card first if has urgent
+  if(flexPkgs.length>0){
+    const col=flexPkgs.filter(p=>p.status==='coletado').length;
+    const pend=flexPkgs.filter(p=>p.status==='pendente').length;
+    const pct=Math.round(col/flexPkgs.length*100);
+    const isActive=activeMkt==='flex';
+    const isDone=pend===0;
+    cards.push(`<div class="mkt-card ${isActive?'active':''} ${isDone?'done':''}" onclick="selectMkt('flex')" style="${isDone?'':'border-color:rgba(224,85,85,.4)'}">
+      <div class="mkt-head"><span class="mkt-chip c-rd">⚡ FLEX URGENTE</span></div>
+      <div class="mkt-count" style="color:${isDone?'var(--gr)':'#F09090'}">${flexPkgs.length}</div>
+      <div class="mkt-sub">${col} col · ${pend} pend</div>
+      <div class="mkt-prog"><div class="mkt-prog-bar" style="width:${pct}%;background:#E05555"></div></div>
+    </div>`);
+  }
+
+  // Regular marketplace cards
+  Object.keys(byMkt).sort().forEach(m=>{
     const list=byMkt[m];
     const col=list.filter(p=>p.status==='coletado').length;
     const pend=list.filter(p=>p.status==='pendente').length;
     const pct=Math.round(col/list.length*100);
     const isActive=activeMkt===m;
     const isDone=pend===0;
-    return `<div class="mkt-card ${isActive?'active':''} ${isDone?'done':''}" onclick="selectMkt('${m}')">
-      <div class="mkt-head"><span class="mkt-chip ${MKT[m].cls}">${MKT[m].icon} ${MKT[m].n}</span></div>
+    cards.push(`<div class="mkt-card ${isActive?'active':''} ${isDone?'done':''}" onclick="selectMkt('${m}')">
+      <div class="mkt-head"><span class="mkt-chip ${MKT[m]?.cls||'c-outro'}">${MKT[m]?.icon||'📦'} ${MKT[m]?.n||m}</span></div>
       <div class="mkt-count" style="color:${isDone?'var(--gr)':'var(--tx)'}">${list.length}</div>
       <div class="mkt-sub">${col} col · ${pend} pend</div>
       <div class="mkt-prog"><div class="mkt-prog-bar" style="width:${pct}%"></div></div>
-    </div>`;
-  }).join('');
+    </div>`);
+  });
+
+  grid.innerHTML = cards.join('');
 }
 
 function selectMkt(mkt){
@@ -586,12 +623,16 @@ function closeColeta(){
 
 function renderPkgList(){
   if(!activeMkt) return;
-  const pkgs=todayPkgs().filter(p=>p.mkt===activeMkt);
+  const pkgs=activeMkt==='flex'
+    ? todayPkgs().filter(p=>p.urgente)
+    : todayPkgs().filter(p=>p.mkt===activeMkt);
   document.getElementById('pkgList').innerHTML=pkgs.map(p=>{
     const sc=colSession.includes(p.etiqueta)||p.status==='coletado';
     return `<div class="pkg-row ${sc?'scanned':''}">
-      <span class="pkg-num">${p.numero}</span>
-      <span class="pkg-dest">${p.destinatario}</span>
+      <div style="flex:1;min-width:0">
+        <div class="pkg-num">${p.numero}${p.nf?' <span style="color:var(--tm);font-size:10px">NF:'+p.nf+'</span>':''}</div>
+        <div class="pkg-dest">${p.destinatario}</div>
+      </div>
       <span class="pkg-badge ${sc?'b-scan':'b-pend'}">${sc?'✓':'—'}</span>
     </div>`;
   }).join('');
@@ -600,7 +641,10 @@ function renderPkgList(){
 
 function renderProgress(){
   if(!activeMkt){ document.getElementById('progArea').style.display='none'; return; }
-  const pend=todayPkgs().filter(p=>p.mkt===activeMkt&&p.status==='pendente'&&!colSession.includes(p.etiqueta));
+  const pend=(activeMkt==='flex'
+    ? todayPkgs().filter(p=>p.urgente)
+    : todayPkgs().filter(p=>p.mkt===activeMkt)
+  ).filter(p=>p.status==='pendente'&&!colSession.includes(p.etiqueta));
   const total=pend.length+colSession.length;
   if(total===0) return;
   const pct=Math.round(colSession.length/total*100);
@@ -698,8 +742,10 @@ function handleScan(rawCode,photo){
   wrongEl.classList.remove('show');
 
   const match=p=>(p.etiqueta===code||p.numero===code||String(p.blingId)===code);
-  const pkg=packages.find(p=>match(p)&&p.date===today&&p.mkt===activeMkt&&p.status==='pendente');
-  const wrongPkg=packages.find(p=>match(p)&&p.date===today&&p.mkt!==activeMkt&&p.status==='pendente');
+  const pkg=packages.find(p=>match(p)&&p.date===today&&p.status==='pendente'&&(activeMkt==='flex'?p.urgente:p.mkt===activeMkt));
+  const wrongPkg=activeMkt==='flex'
+    ? null // no wrong mkt for flex
+    : packages.find(p=>match(p)&&p.date===today&&p.mkt!==activeMkt&&p.status==='pendente');
   const already=packages.find(p=>match(p)&&p.date===today&&p.status==='coletado');
   const inSession=colSession.includes(code);
 
@@ -738,7 +784,10 @@ function flashPhoto(ok){
 
 async function finalizeColeta(){
   if(!activeMkt||colSession.length===0) return;
-  const pend=todayPkgs().filter(p=>p.mkt===activeMkt&&p.status==='pendente'&&!colSession.includes(p.etiqueta));
+  const pend=(activeMkt==='flex'
+    ? todayPkgs().filter(p=>p.urgente)
+    : todayPkgs().filter(p=>p.mkt===activeMkt)
+  ).filter(p=>p.status==='pendente'&&!colSession.includes(p.etiqueta));
   if(pend.length>0){
     document.getElementById('missingArea').classList.add('show');
     document.getElementById('missingList').innerHTML=pend.map(p=>`<div class="missing-item">⚠ ${p.numero} · ${p.destinatario}</div>`).join('');
