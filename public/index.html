@@ -1070,6 +1070,8 @@ async function initApp(){
   document.getElementById('blingDot').style.color='var(--gr)';
   document.getElementById('blingDot').style.borderColor='var(--gr3)';
   renderRomaneio(); updateBadges();
+  // Auto-busca ao abrir
+  setTimeout(()=>{ pullFromBling(); }, 500);
 }
 
 (async()=>{
