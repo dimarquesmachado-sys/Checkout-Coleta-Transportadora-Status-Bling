@@ -733,7 +733,7 @@ async function pullFromBling(){
     const today=todayStr();
     let all=[];let page=1;let more=true;
     while(more&&page<=10){
-      const r=await apiFetch(`/bling/pedidos/vendas?dataInicial=${today}&dataFinal=${today}&situacao=24&pagina=${page}&limite=100`);
+      const r=await apiFetch(`/bling/pedidos/vendas?situacao=24&pagina=${page}&limite=100`);
       const d=await r.json();
       const orders=d.data||[];
       all=all.concat(orders);
@@ -1053,7 +1053,18 @@ async function initApp(){
 }
 
 (async()=>{
-  if(sessionToken){ const ok=await checkSession(); if(ok){ document.getElementById('loginScreen').style.display='none'; document.getElementById('appWrap').classList.add('show'); initApp(); return; } }
+  const loginTime = ld('expv4_login_time', 0);
+  const within24h = loginTime && (Date.now() - loginTime < 24 * 60 * 60 * 1000);
+  if(sessionToken && within24h){
+    const ok=await checkSession();
+    if(ok){
+      document.getElementById('loginScreen').style.display='none';
+      document.getElementById('appWrap').classList.add('show');
+      initApp(); return;
+    }
+  }
+  // Clear expired session
+  sv('expv4_session',''); sv('expv4_user',''); sv('expv4_login_time',0);
   document.getElementById('loginUser').focus();
 })();
 </script>
