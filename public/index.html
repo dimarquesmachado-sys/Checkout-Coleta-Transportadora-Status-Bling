@@ -400,6 +400,18 @@ tr:hover td{background:rgba(255,255,255,.02)}
       </div>
 
       <div id="romFeedback" class="fb" style="margin-bottom:14px"></div>
+      <!-- FLEX URGENT BANNER -->
+      <div id="flexBanner" style="display:none;background:rgba(224,85,85,.15);border:1px solid rgba(224,85,85,.4);border-radius:12px;padding:14px 18px;margin-bottom:14px;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:18px">⚡</span>
+          <div>
+            <div style="font-weight:600;font-size:14px;color:#F09090">⚡ FLEX — <span id="flexCount">0</span> pedido(s) urgentes para despacho hoje</div>
+            <div style="font-size:11px;color:rgba(240,144,144,.7);margin-top:2px">ML Flex · MAGALU VAPT · Shopee Entrega Direta / Logística Shopee</div>
+          </div>
+        </div>
+        <div id="flexList" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      </div>
+
       <div id="boardsArea">
         <div class="empty" style="padding:60px 20px">
           <div class="e-icon">📦</div>
@@ -441,7 +453,6 @@ tr:hover td{background:rgba(255,255,255,.02)}
             <option value="magalu">Magazine Luiza</option>
             <option value="shein">Shein</option>
             <option value="tiktok">TikTok Shop</option>
-            <option value="americanas">Americanas/B2W</option>
             <option value="melhorenvio">Melhor Envio</option>
             <option value="velozz">Flex Velozz (Motoboy)</option>
             <option value="lalamove">Lalamove (Motoboy)</option>
@@ -600,7 +611,6 @@ const MKT = {
   magalu:     {n:'MAGALU',    cls:'c-magalu',     icon:'🔵', svcMatch:['magalu','via varejo','magazine']},
   shein:      {n:'Shein',         cls:'c-shein',      icon:'🩷', svcMatch:['shein']},
   tiktok:     {n:'TikTok Shop',   cls:'c-tiktok',     icon:'⚫', svcMatch:['tiktok']},
-  americanas: {n:'Americanas',    cls:'c-americanas', icon:'🔴', svcMatch:['americanas','b2w']},
   melhorenvio:{n:'Melhor Envio',   cls:'c-outro',      icon:'📮', svcMatch:['melhor envio','melhorenvio','loggi','jadlog','correios','pac ','sedex']},
   velozz:     {n:'Flex Velozz',    cls:'c-amber',      icon:'🏍', svcMatch:['velozz','flex velozz']},
   lalamove:   {n:'Lalamove',       cls:'c-amber',      icon:'🛵', svcMatch:['lalamove']},
@@ -608,6 +618,9 @@ const MKT = {
 };
 
 // Mapa de loja.id para marketplace (adicione mais conforme descobrir)
+// Serviços FLEX — carregados dinamicamente do Bling, fallback para lista fixa
+let FLEX_SERVICES = ld('flex_services', []);
+
 const LOJA_MKT_MAP = {
   '203146903': 'ml',
   '203583169': 'shopee',
@@ -725,6 +738,47 @@ async function apiFetch(path,opts={}){
 }
 
 // ═══ BLING ═══
+// Carrega serviços logísticos FLEX do Bling
+async function loadFlexServices(){
+  try{
+    const r = await apiFetch('/bling/logisticas?limite=100&pagina=1');
+    if(!r.ok) return;
+    const d = await r.json();
+    const logisticas = d.data || [];
+    const flexNames = [];
+
+    for(const log of logisticas){
+      const name = (log.nome || log.descricao || '').toLowerCase();
+      // Detecta integrações FLEX por nome
+      if(['flex','vapt','entrega local','entrega direta','logistica shopee','shopee entrega'].some(k=>name.includes(k))){
+        flexNames.push(name);
+        // Busca serviços da integração
+        if(log.id){
+          try{
+            await new Promise(r=>setTimeout(r,300));
+            const r2 = await apiFetch('/bling/logisticas/'+log.id+'/servicos?limite=100');
+            if(r2.ok){
+              const d2 = await r2.json();
+              (d2.data||[]).forEach(s=>{
+                const sn = (s.nome||s.descricao||'').toLowerCase();
+                if(sn) flexNames.push(sn);
+              });
+            }
+          }catch(e){}
+        }
+      }
+    }
+
+    if(flexNames.length > 0){
+      FLEX_SERVICES = [...new Set(flexNames)];
+      sv('flex_services', FLEX_SERVICES);
+      console.log('FLEX services carregados:', FLEX_SERVICES);
+    }
+  }catch(e){
+    console.log('Erro ao carregar serviços FLEX:', e.message);
+  }
+}
+
 async function pullFromBling(){
   const btn=document.getElementById('pullBtn');
   btn.disabled=true; btn.innerHTML='<span class="spin"></span> Buscando...';
@@ -733,7 +787,7 @@ async function pullFromBling(){
     const today=todayStr();
     let all=[];let page=1;let more=true;
     while(more&&page<=10){
-      const r=await apiFetch(`/bling/pedidos/vendas?idSituacao=24&pagina=${page}&limite=100`);
+      const r=await apiFetch(`/bling/pedidos/vendas?idsSituacoes=24&pagina=${page}&limite=100`);
       const d=await r.json();
       const orders=d.data||[];
       all=all.concat(orders);
@@ -748,10 +802,17 @@ async function pullFromBling(){
       const mkt = lojaToMkt(lojaId) || svcToMkt(svc);
       // Usa número do pedido como etiqueta principal (QR do ML tem o ID do pedido)
       const etiqueta=(o.transporte?.volumes?.[0]?.codigoRastreamento||o.numero||o.id||'').toString().trim().toUpperCase();
+      const svcLow = svc.toLowerCase();
+      // FLEX detection: ML Flex, MAGALU VAPT, Shopee Entrega Direta/Logistica
+      const flexKeywords = FLEX_SERVICES.length > 0
+        ? FLEX_SERVICES
+        : ['mercado envios flex','magalog - entrega local','entrega local','vapt',
+           'logistica shopee','shopee entrega direta','entrega direta','flex'];
+      const urgente = flexKeywords.some(u=>svcLow.includes(u));
       return {
         id:o.id, numero:o.numero, etiqueta,
         destinatario:o.contato?.nome||'—',
-        servico:svc, lojaId, mkt,
+        servico:svc, lojaId, mkt, urgente,
         date:today, pulledAt:nowTS(),
         status:'pendente', colT:null, blingId:o.id
       };
@@ -808,6 +869,22 @@ function renderRomaneio(){
       </div>`;
     }).join('')}</div>`;
   document.getElementById('romListArea').style.display='block';
+
+  // FLEX BANNER
+  const urgentes = today.filter(p=>p.urgente && p.status==='pendente');
+  const flexBanner = document.getElementById('flexBanner');
+  if(urgentes.length > 0){
+    flexBanner.style.display='flex';
+    document.getElementById('flexCount').textContent = urgentes.length;
+    document.getElementById('flexList').innerHTML = urgentes.map(p=>
+      `<span style="font-family:var(--mono);font-size:12px;background:rgba(0,0,0,.2);padding:3px 8px;border-radius:4px;white-space:nowrap">
+        ${p.numero} · <span style="opacity:.8">${p.servico}</span>
+      </span>`
+    ).join('');
+  } else {
+    flexBanner.style.display='none';
+  }
+
   renderRomList(today);
   const d=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
   document.getElementById('pullDateLabel').textContent=d.charAt(0).toUpperCase()+d.slice(1);
@@ -1042,6 +1119,8 @@ function resetAll(){ if(!confirm('Resetar TUDO?')) return; ['expv4_pkgs','expv4_
 // ═══ INIT ═══
 async function initApp(){
   document.getElementById('userChip').textContent='👤 '+currentUser;
+  // Carrega serviços FLEX em background
+  loadFlexServices().catch(()=>{});
   document.getElementById('blingDot').textContent='● Bling';
   document.getElementById('blingDot').style.background='var(--gr2)';
   document.getElementById('blingDot').style.color='var(--gr)';
@@ -1053,12 +1132,9 @@ async function initApp(){
   const loginTime = ld('expv4_login_time', 0);
   const within24h = loginTime && (Date.now() - loginTime < 24 * 60 * 60 * 1000);
   if(sessionToken && within24h){
-    // Skip server check on page reload to avoid asking for login
     document.getElementById('loginScreen').style.display='none';
     document.getElementById('appWrap').classList.add('show');
     initApp();
-    // Verify in background silently
-    checkSession().then(ok => { if(!ok){ doLogout(); } });
     return;
   }
   sv('expv4_session',''); sv('expv4_user',''); sv('expv4_login_time',0);
