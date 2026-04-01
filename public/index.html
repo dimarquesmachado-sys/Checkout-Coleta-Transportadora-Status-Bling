@@ -484,28 +484,36 @@ async function apiFetch(path,opts={}){
 // ═══ BLING ═══
 // Detecta pedidos FLEX do ML buscando detalhe individual
 async function detectFlexML(mlPkgs){
-  const FLEX_SERVICES = ['mercado envios flex','flex'];
+  const FLEX_KEYWORDS = ['flex','entrega local','vapt','entrega direta','logistica shopee'];
   let found = 0;
   for(const pkg of mlPkgs){
     try{
-      await new Promise(r=>setTimeout(r,300));
+      await new Promise(r=>setTimeout(r,500));
       const r = await apiFetch('/bling/pedidos/vendas/'+pkg.blingId);
       if(!r.ok) continue;
       const d = await r.json();
       const order = d.data || d;
-      const svc = (order.transporte?.servico?.nome||
-                   order.transporte?.volumes?.[0]?.servico||'').toLowerCase();
-      const isFlexIntegration = (order.integracaoLogistica?.id||'').toString().includes('flex');
-      if(FLEX_SERVICES.some(f=>svc.includes(f)) || isFlexIntegration){
+      // Check all possible service fields
+      const svcNome = (order.transporte?.servico?.nome||'').toLowerCase();
+      const svcVol = (order.transporte?.volumes?.[0]?.servico||'').toLowerCase();
+      const svcTransp = (order.transporte?.transportadora?.nome||'').toLowerCase();
+      const allSvc = svcNome+' '+svcVol+' '+svcTransp;
+      const isFlex = FLEX_KEYWORDS.some(f=>allSvc.includes(f));
+      console.log('ML detalhe', pkg.numero, '| svc:', svcNome, '| vol:', svcVol, '| transp:', svcTransp, '| FLEX:', isFlex);
+      if(isFlex){
         const p = packages.find(x=>x.blingId===pkg.blingId);
-        if(p){ p.urgente=true; p.servico=order.transporte?.servico?.nome||'ML Flex'; found++; }
+        if(p){
+          p.urgente=true;
+          p.servico=order.transporte?.servico?.nome||order.transporte?.volumes?.[0]?.servico||'ML Flex';
+          found++;
+        }
       }
-    }catch(e){}
+    }catch(e){ console.warn('Erro detalhe', pkg.numero, e.message); }
   }
   if(found>0){
     sv('expv5_pkgs',packages);
     renderMktGrid();
-    toast(`⚡ ${found} pedido(s) FLEX detectado(s)`,'warn');
+    toast(`⚡ ${found} FLEX detectado(s)`,'warn');
   }
 }
 
@@ -519,18 +527,17 @@ async function pullFromBling(){
     const d30=new Date(); d30.setDate(d30.getDate()-30);
     const dateFrom=d30.toISOString().split('T')[0];
 
-    while(more&&page<=5){  // max 5 páginas = 500 pedidos
-      const syncBtn=document.getElementById('syncBtn');
-      if(syncBtn) syncBtn.innerHTML=`<span class="spin"></span> Pág. ${page}...`;
+    while(more&&page<=4){
       const r=await apiFetch(`/bling/pedidos/vendas?idSituacao=24&dataEmissaoInicial=${dateFrom}&dataEmissaoFinal=${today}&pagina=${page}&limite=100`);
-      // 304 = sem novos dados, para imediatamente
       if(r.status===304){ more=false; break; }
+      if(r.status===401){ toast('Token Bling expirado — renove no Render','err'); more=false; break; }
       if(r.status!==200){ more=false; break; }
       const d=await r.json();
       const orders=d.data||[];
       if(orders.length===0){ more=false; break; }
       all=all.concat(orders);
       more=orders.length===100; page++;
+      if(more) await new Promise(r=>setTimeout(r,1000)); // delay entre páginas
     }
     if(all.length===0){ flash('Nenhum pedido VERIFICADO encontrado','warn'); renderMktGrid(); return; }
 
