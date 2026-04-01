@@ -601,6 +601,16 @@ const MKT = {
   outro:      {n:'Outro',         cls:'c-outro',      icon:'📫', svcMatch:[]},
 };
 
+// Mapa de loja.id para marketplace (adicione mais conforme descobrir)
+const LOJA_MKT_MAP = {
+  '203146903': 'ml',      // Mercado Livre Girassol
+  // Adicione outros IDs de loja aqui
+};
+
+function lojaToMkt(lojaId){
+  return LOJA_MKT_MAP[String(lojaId)] || null;
+}
+
 function svcToMkt(svcName){
   if(!svcName) return 'outro';
   const n=svcName.toLowerCase();
@@ -713,7 +723,7 @@ async function pullFromBling(){
     const today=todayStr();
     let all=[];let page=1;let more=true;
     while(more&&page<=10){
-      const r=await apiFetch(`/bling/pedidos/vendas?dataInicial=${today}&dataFinal=${today}&idSituacao=5&pagina=${page}&limite=100`);
+      const r=await apiFetch(`/bling/pedidos/vendas?dataInicial=${today}&dataFinal=${today}&situacao=9&pagina=${page}&limite=100`);
       const d=await r.json();
       const orders=d.data||[];
       all=all.concat(orders);
@@ -722,9 +732,19 @@ async function pullFromBling(){
     if(all.length===0){ flash('romFeedback','warn','Nenhum pedido encontrado para hoje'); return; }
 
     const newPkgs=all.map(o=>{
-      const svc=o.transporte?.servico?.nome||o.transporte?.transportadora?.nome||'';
-      const etiqueta=(o.transporte?.etiqueta?.numero||o.transporte?.codigoRastreamento||o.numero||'').toString().trim().toUpperCase();
-      return {id:o.id,numero:o.numero,etiqueta,destinatario:o.contato?.nome||'—',servico:svc,mkt:svcToMkt(svc),date:today,pulledAt:nowTS(),status:'pendente',colT:null,blingId:o.id};
+      const lojaId=String(o.loja?.id||'');
+      const svc=o.transporte?.servico?.nome||o.transporte?.transportadora?.nome||o.loja?.nome||'';
+      // Prioriza identificação pelo ID da loja, depois pelo nome do serviço
+      const mkt = lojaToMkt(lojaId) || svcToMkt(svc);
+      // Usa número do pedido como etiqueta principal (QR do ML tem o ID do pedido)
+      const etiqueta=(o.transporte?.volumes?.[0]?.codigoRastreamento||o.numero||o.id||'').toString().trim().toUpperCase();
+      return {
+        id:o.id, numero:o.numero, etiqueta,
+        destinatario:o.contato?.nome||'—',
+        servico:svc, lojaId, mkt,
+        date:today, pulledAt:nowTS(),
+        status:'pendente', colT:null, blingId:o.id
+      };
     }).filter(p=>p.etiqueta);
 
     packages=packages.filter(p=>p.date!==today);
@@ -822,8 +842,20 @@ function selectCarrier(){
 
 document.getElementById('manualIn').addEventListener('keydown',e=>{ if(e.key==='Enter'){ const c=document.getElementById('manualIn').value.trim().toUpperCase(); if(c){ handleScan(c,null); document.getElementById('manualIn').value=''; } } });
 
-function handleScan(code,photo){
-  if(!code||!activeCarrier) return;
+function handleScan(rawCode,photo){
+  if(!rawCode||!activeCarrier) return;
+
+  // Tenta parsear QR Code JSON do Mercado Livre: {"id":"12345","t":"lm"}
+  let code = rawCode.trim().toUpperCase();
+  try{
+    const qr = JSON.parse(rawCode);
+    if(qr.id){
+      // QR do ML — usa o número do pedido como chave
+      code = String(qr.id).toUpperCase();
+      console.log('QR ML detectado, ID:', code);
+    }
+  }catch(e){ /* não é JSON, usa código direto */ }
+
   if(code===lastCode&&Date.now()-lastCodeAt<2000) return;
   lastCode=code; lastCodeAt=Date.now();
 
@@ -831,9 +863,11 @@ function handleScan(code,photo){
   const wrongEl=document.getElementById('wrongAlert');
   wrongEl.classList.remove('show');
 
-  const pkg=packages.find(p=>p.etiqueta===code&&p.date===today&&p.mkt===activeCarrier&&p.status==='pendente');
-  const wrongPkg=packages.find(p=>p.etiqueta===code&&p.date===today&&p.mkt!==activeCarrier&&p.status==='pendente');
-  const already=packages.find(p=>p.etiqueta===code&&p.date===today&&p.status==='coletado');
+  // Busca por etiqueta OU número do pedido
+  const matchPkg = p => (p.etiqueta===code || p.numero===code || String(p.blingId)===code);
+  const pkg=packages.find(p=>matchPkg(p)&&p.date===today&&p.mkt===activeCarrier&&p.status==='pendente');
+  const wrongPkg=packages.find(p=>matchPkg(p)&&p.date===today&&p.mkt!==activeCarrier&&p.status==='pendente');
+  const already=packages.find(p=>matchPkg(p)&&p.date===today&&p.status==='coletado');
   const inSession=colSession.includes(code);
 
   if(inSession||already){ flash('colFb','warn',`⚠ ${code} já foi bipado`); return; }
@@ -901,7 +935,7 @@ function finalizeColeta(){
   const now=nowT();
   colSession.forEach(code=>{ const p=packages.find(x=>x.etiqueta===code&&x.date===todayStr()); if(p){ p.status='coletado'; p.colT=now; } });
   sv('expv4_pkgs',packages);
-  colSession.forEach(c=>{ const p=packages.find(x=>x.etiqueta===c&&x.date===todayStr()); if(p?.blingId) updateBlingStatus(p.blingId); });
+  colSession.forEach(c=>{ const p=packages.find(x=>x.etiqueta===c&&x.date===todayStr()); if(p?.blingId) updateBlingStatus(p.blingId, 9); });
   toast(`${MKT[activeCarrier].n}: ${colSession.length} pacotes entregues ✓`,'ok');
   colSession=[]; stopCamera();
   document.getElementById('carrierSel').value=''; selectCarrier();
@@ -910,8 +944,15 @@ function finalizeColeta(){
 
 function cancelColeta(){ colSession=[]; document.getElementById('carrierSel').value=''; selectCarrier(); }
 
-async function updateBlingStatus(id){
-  try{ await apiFetch(`/bling/pedidos/vendas/${id}/situacoes/9`,{method:'PATCH'}); }catch(e){}
+async function updateBlingStatus(id, situacaoId){
+  if(!id) return;
+  try{
+    await apiFetch(`/bling/pedidos/${id}/situacoes`,{
+      method:'PATCH',
+      body: JSON.stringify({situacao:{id: situacaoId || 14}})
+    });
+    console.log('Status Bling atualizado:', id, situacaoId);
+  }catch(e){ console.error('Erro update Bling:', e); }
 }
 
 // ═══ CAMERA ═══
