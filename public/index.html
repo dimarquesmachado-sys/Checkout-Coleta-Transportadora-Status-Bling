@@ -635,18 +635,9 @@ function lojaToMkt(lojaId){
   return LOJA_MKT_MAP[String(lojaId)] || null;
 }
 
-const LOJA_MKT_MAP = {
-  '203146903': 'ml',
-  '203583169': 'shopee',
-  '203967708': 'amazon',
-  '203262016': 'magalu',
-  '205523707': 'tiktok',
-};
 
-function lojaToMkt(lojaId){
-  if(!lojaId || lojaId==='0') return null;
-  return LOJA_MKT_MAP[String(lojaId)] || null;
-}
+
+
 
 function svcToMkt(svcName){
   if(!svcName) return 'outro';
