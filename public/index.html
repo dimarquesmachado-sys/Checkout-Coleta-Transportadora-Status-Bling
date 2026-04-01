@@ -61,6 +61,7 @@ html,body{height:100%;font-family:var(--sans);background:var(--bg);color:var(--t
   margin-top:12px;display:none;
 }
 .login-err.show{display:block}
+.login-err.show{display:block}
 
 /* ═══ NAV ═══ */
 nav{
@@ -679,14 +680,24 @@ const todayPkgs=()=>packages.filter(p=>p.date===todayStr());
 
 // ═══ AUTH ═══
 function toggleLoginPass(){
-  const inp=document.getElementById('loginPass');
-  const btn=document.getElementById('eyeBtn');
-  if(inp.type==='password'){ inp.type='text'; btn.textContent='🙈'; }
-  else { inp.type='password'; btn.textContent='👁'; }
+  try{
+    var inp = document.getElementById('loginPass');
+    var btn = document.getElementById('eyeBtn');
+    if(inp.type === 'password'){
+      inp.type = 'text';
+      btn.textContent = '🙈';
+    } else {
+      inp.type = 'password';
+      btn.textContent = '👁';
+    }
+  }catch(e){ console.error('toggleLoginPass error:', e); }
 }
 
-document.addEventListener('keydown',e=>{
-  if(e.key==='Enter'&&document.getElementById('loginScreen').style.display!=='none') doLogin();
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Enter'){
+    var ls = document.getElementById('loginScreen');
+    if(ls && ls.style.display !== 'none') doLogin();
+  }
 });
 
 async function doLogin(){
