@@ -235,6 +235,44 @@ app.all('/bling/*', requireAuth, async (req, res) => {
 });
 
 
+
+// ── ROTA PÚBLICA: ver detalhes de um pedido (descobrir IDs) ──────
+app.get('/info/pedido/:id', async (req, res) => {
+  try {
+    await sleep(300);
+    const r = await blingFetch(BLING_BASE + '/pedidos/vendas/' + req.params.id);
+    const data = await r.json();
+    const p = data.data || data;
+    res.json({
+      id: p.id,
+      numero: p.numero,
+      situacao: p.situacao,
+      loja: p.loja,
+      contato: p.contato?.nome,
+      transporte: p.transporte,
+    });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── ROTA PÚBLICA: listar pedidos verificados (busca situações) ────
+app.get('/info/verificados', async (req, res) => {
+  try {
+    await sleep(300);
+    // Busca com vários idSituacao candidatos para Verificado
+    const candidates = [14, 15, 16, 17, 18, 19, 20];
+    const results = [];
+    for(const id of candidates) {
+      await sleep(300);
+      const r = await blingFetch(BLING_BASE + `/pedidos/vendas?situacao=${id}&limite=1&pagina=1`);
+      const d = await r.json();
+      if(d.data && d.data.length > 0) {
+        results.push({ situacaoId: id, nomeSituacao: d.data[0].situacao?.nome, exemplo: d.data[0].numero });
+      }
+    }
+    res.json({ encontrados: results });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
 // ── ROTA PÚBLICA: listar situações (só para descobrir IDs) ────────
 app.get('/info/situacoes', async (req, res) => {
   if (!accessToken) {
@@ -242,10 +280,23 @@ app.get('/info/situacoes', async (req, res) => {
   }
   try {
     await sleep(300);
-    const r = await blingFetch(BLING_BASE + '/situacoes?limite=100&pagina=1');
-    const data = await r.json();
+    // Tenta diferentes endpoints para situações
+    const endpoints = [
+      '/situacoes?limite=100&pagina=1',
+      '/situacoes/modulos?limite=100',
+      '/pedidos/situacoes?limite=100',
+    ];
+    let data = { data: [] };
+    for(const ep of endpoints) {
+      const r2 = await blingFetch(BLING_BASE + ep);
+      const d = await r2.json();
+      if(d.data && d.data.length > 0) { data = d; break; }
+      await sleep(300);
+    }
+    const r = { json: async () => data };
+    const data2 = await r.json().catch(() => data);
     // Filtra e formata para fácil leitura
-    const situacoes = (data.data || []).map(s => ({
+    const situacoes = ((data2||data).data || []).map(s => ({
       id: s.id,
       nome: s.nome,
       modulo: s.modulo?.nome || ''
