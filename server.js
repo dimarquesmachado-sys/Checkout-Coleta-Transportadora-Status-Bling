@@ -236,6 +236,32 @@ app.all('/bling/*', requireAuth, async (req, res) => {
 
 
 
+
+// ── TESTE: diferentes parâmetros de filtro situação ─────────────
+app.get('/info/teste-filtro', async (req, res) => {
+  const results = {};
+  const params = [
+    'idSituacao=24',
+    'idsSituacoes=24',
+    'situacao=24',
+    'situacoes=24',
+  ];
+  for(const p of params){
+    try{
+      await sleep(400);
+      const r = await blingFetch(BLING_BASE + '/pedidos/vendas?' + p + '&limite=5&pagina=1');
+      const d = await r.json();
+      results[p] = {
+        status: r.status,
+        total: d.data?.length || 0,
+        primeiro_status: d.data?.[0]?.situacao?.nome || 'N/A',
+        primeiro_id_sit: d.data?.[0]?.situacao?.id || 'N/A'
+      };
+    }catch(e){ results[p] = {erro: e.message}; }
+  }
+  res.json(results);
+});
+
 // ── ROTA PÚBLICA: ver detalhes de um pedido (descobrir IDs) ──────
 app.get('/info/pedido/:id', async (req, res) => {
   try {
