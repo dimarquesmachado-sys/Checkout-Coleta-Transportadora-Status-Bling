@@ -777,15 +777,18 @@ async function pullFromBling(){
       // Prioriza identificação pelo ID da loja, depois pelo nome do serviço
       const mkt = lojaToMkt(lojaId) || svcToMkt(svc);
       // Usa número do pedido como etiqueta principal (QR do ML tem o ID do pedido)
-      const etiqueta=(o.transporte?.volumes?.[0]?.codigoRastreamento||o.numero||o.id||'').toString().trim().toUpperCase();
+      // Usa número do pedido como etiqueta primária, rastreio como secundário
+      const etiqueta=(o.numero||o.id||'').toString().trim().toUpperCase();
+      const rastreio=(o.transporte?.volumes?.[0]?.codigoRastreamento||'').toString().trim().toUpperCase();
       return {
         id:o.id, numero:o.numero, etiqueta,
         destinatario:o.contato?.nome||'—',
+        rastreio,
         servico:svc, lojaId, mkt,
         date:today, pulledAt:nowTS(),
         status:'pendente', colT:null, blingId:o.id
       };
-    }).filter(p => p.etiqueta && p.blingStatus===24);
+    }).filter(p => p.etiqueta && p.blingStatus===24); // etiqueta = numero do pedido
 
     packages=packages.filter(p=>p.date!==today);
     packages=[...newPkgs,...packages];
