@@ -785,7 +785,7 @@ async function pullFromBling(){
         date:today, pulledAt:nowTS(),
         status:'pendente', colT:null, blingId:o.id
       };
-    }).filter(p=>p.etiqueta);
+    }).filter(p=>p.etiqueta && p.blingStatus===24);
 
     packages=packages.filter(p=>p.date!==today);
     packages=[...newPkgs,...packages];
