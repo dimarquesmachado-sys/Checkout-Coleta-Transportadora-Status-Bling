@@ -496,6 +496,8 @@ async function pullFromBling(){
       const syncBtn=document.getElementById('syncBtn');
       if(syncBtn) syncBtn.innerHTML=`<span class="spin"></span> Pág. ${page}...`;
       const r=await apiFetch(`/bling/pedidos/vendas?idSituacao=24&dataEmissaoInicial=${dateFrom}&dataEmissaoFinal=${today}&pagina=${page}&limite=100`);
+      // 304 = sem novos dados, para imediatamente
+      if(r.status===304){ more=false; break; }
       if(r.status!==200){ more=false; break; }
       const d=await r.json();
       const orders=d.data||[];
@@ -504,21 +506,34 @@ async function pullFromBling(){
       more=orders.length===100; page++;
     }
     if(all.length===0){ flash('Nenhum pedido VERIFICADO encontrado','warn'); renderMktGrid(); return; }
-    // Debug: log service names to find FLEX
-    if(all.length>0) console.log('Serviços sample:', all.slice(0,5).map(o=>({
+    // Debug: find FLEX orders
+    const flexSample=all.filter(o=>['103803','103802'].includes(String(o.numero)));
+    if(flexSample.length>0) console.log('FLEX orders debug:', JSON.stringify(flexSample.map(o=>({
       num:o.numero,
       svc:o.transporte?.servico?.nome,
       transportadora:o.transporte?.transportadora?.nome,
-      loja:o.loja?.nome,
-      lojaId:o.loja?.id
-    })));
+      integracaoLogistica:o.integracaoLogistica,
+      codigoIntegracao:o.codigoIntegracao,
+      numeroPedidoLoja:o.numeroPedidoLoja,
+      volumes:o.transporte?.volumes?.map(v=>v.servico),
+      loja:o.loja
+    }))));
 
     const newPkgs=all.map(o=>{
       const lojaId=String(o.loja?.id||'0');
       const svc=o.transporte?.servico?.nome||o.transporte?.transportadora?.nome||o.loja?.nome||'';
       const mkt=lojaToMkt(lojaId)||svcToMkt(svc);
       const svcLow=svc.toLowerCase();
-      const urgente=['mercado envios flex','magalog - entrega local','vapt','logistica shopee','shopee entrega direta','entrega direta','flex'].some(u=>svcLow.includes(u));
+      // FLEX detection: by service name OR by logistic integration code
+      const integracao = String(o.integracaoLogistica?.id||o.codigoIntegracao||'').toLowerCase();
+      const numLoja = String(o.numeroPedidoLoja||'').toLowerCase();
+      const flexKeywords = ['mercado envios flex','magalog - entrega local','vapt',
+        'logistica shopee','shopee entrega direta','entrega direta','flex'];
+      const urgente = flexKeywords.some(u=>svcLow.includes(u))
+        || integracao.includes('flex')
+        || integracao.includes('vapt')
+        || integracao.includes('entregalocal')
+        || integracao.includes('entrega_direta');
       const etiqueta=(o.numero||o.id||'').toString().trim().toUpperCase();
       // NF: pode vir em notaFiscal, nfe, nota, etc
       const nf = o.notaFiscal?.numero || o.nfe?.numero || o.nota?.numero || '';
