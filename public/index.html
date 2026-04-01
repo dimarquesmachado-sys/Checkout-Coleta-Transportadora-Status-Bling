@@ -389,7 +389,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
       <div class="pull-bar">
         <div class="pull-info">
           <div class="pull-date" id="pullDateLabel">Carregando...</div>
-          <div class="pull-sub" id="pullSubLabel">Pedidos ATENDIDOS do Bling</div>
+          <div class="pull-sub" id="pullSubLabel">Pedidos VERIFICADOS do Bling</div>
         </div>
         <span class="bling-dot" id="blingDot">● Bling</span>
         <button class="btn btn-am" id="pullBtn" onclick="pullFromBling()">
@@ -442,6 +442,9 @@ tr:hover td{background:rgba(255,255,255,.02)}
             <option value="shein">Shein</option>
             <option value="tiktok">TikTok Shop</option>
             <option value="americanas">Americanas/B2W</option>
+            <option value="melhorenvio">Melhor Envio</option>
+            <option value="velozz">Flex Velozz (Motoboy)</option>
+            <option value="lalamove">Lalamove (Motoboy)</option>
             <option value="outro">Outro</option>
           </select>
           <div id="carrierCount" style="font-family:var(--mono);font-size:13px;color:var(--tm)"></div>
@@ -598,16 +601,23 @@ const MKT = {
   shein:      {n:'Shein',         cls:'c-shein',      icon:'🩷', svcMatch:['shein']},
   tiktok:     {n:'TikTok Shop',   cls:'c-tiktok',     icon:'⚫', svcMatch:['tiktok']},
   americanas: {n:'Americanas',    cls:'c-americanas', icon:'🔴', svcMatch:['americanas','b2w']},
+  melhorenvio:{n:'Melhor Envio',   cls:'c-outro',      icon:'📮', svcMatch:['melhor envio','melhorenvio','loggi','jadlog','correios','pac ','sedex']},
+  velozz:     {n:'Flex Velozz',    cls:'c-amber',      icon:'🏍', svcMatch:['velozz','flex velozz']},
+  lalamove:   {n:'Lalamove',       cls:'c-amber',      icon:'🛵', svcMatch:['lalamove']},
   outro:      {n:'Outro',         cls:'c-outro',      icon:'📫', svcMatch:[]},
 };
 
 // Mapa de loja.id para marketplace (adicione mais conforme descobrir)
 const LOJA_MKT_MAP = {
-  '203146903': 'ml',      // Mercado Livre Girassol
-  // Adicione outros IDs de loja aqui
+  '203146903': 'ml',
+  '203583169': 'shopee',
+  '203967708': 'amazon',
+  '203262016': 'magalu',
+  '205523707': 'tiktok',
 };
 
 function lojaToMkt(lojaId){
+  if(!lojaId || lojaId === '0' || lojaId === 'undefined') return 'melhorenvio';
   return LOJA_MKT_MAP[String(lojaId)] || null;
 }
 
@@ -615,10 +625,10 @@ function svcToMkt(svcName){
   if(!svcName) return 'outro';
   const n=svcName.toLowerCase();
   for(const [id,m] of Object.entries(MKT)){
-    if(id==='outro') continue;
+    if(id==='outro'||id==='melhorenvio') continue;
     if(m.svcMatch.some(s=>n.includes(s))) return id;
   }
-  return 'outro';
+  return 'melhorenvio';
 }
 
 const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
@@ -723,7 +733,7 @@ async function pullFromBling(){
     const today=todayStr();
     let all=[];let page=1;let more=true;
     while(more&&page<=10){
-      const r=await apiFetch(`/bling/pedidos/vendas?dataInicial=${today}&dataFinal=${today}&situacao=9&pagina=${page}&limite=100`);
+      const r=await apiFetch(`/bling/pedidos/vendas?dataInicial=${today}&dataFinal=${today}&situacao=24&pagina=${page}&limite=100`);
       const d=await r.json();
       const orders=d.data||[];
       all=all.concat(orders);
@@ -935,7 +945,7 @@ function finalizeColeta(){
   const now=nowT();
   colSession.forEach(code=>{ const p=packages.find(x=>x.etiqueta===code&&x.date===todayStr()); if(p){ p.status='coletado'; p.colT=now; } });
   sv('expv4_pkgs',packages);
-  colSession.forEach(c=>{ const p=packages.find(x=>x.etiqueta===c&&x.date===todayStr()); if(p?.blingId) updateBlingStatus(p.blingId, 9); });
+  colSession.forEach(c=>{ const p=packages.find(x=>x.etiqueta===c&&x.date===todayStr()); if(p?.blingId) updateBlingStatus(p.blingId, 743515); });
   toast(`${MKT[activeCarrier].n}: ${colSession.length} pacotes entregues ✓`,'ok');
   colSession=[]; stopCamera();
   document.getElementById('carrierSel').value=''; selectCarrier();
