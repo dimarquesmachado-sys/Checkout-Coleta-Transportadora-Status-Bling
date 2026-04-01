@@ -154,8 +154,9 @@ header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;
 .pkg-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--b1)}
 .pkg-row:last-child{border-bottom:none}
 .pkg-row.scanned{opacity:.5}
-.pkg-num{font-family:var(--mono);font-size:13px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pkg-dest{font-size:11px;color:var(--tm);flex:1.5;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pkg-num{font-family:var(--mono);font-size:13px;font-weight:600;flex:1;min-width:0}
+.pkg-sub{font-size:10px;font-family:var(--mono);color:var(--tm);display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.pkg-dest{font-size:11px;color:var(--tm);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
 .pkg-badge{font-size:10px;font-weight:700;padding:3px 7px;border-radius:4px;font-family:var(--mono)}
 .b-pend{background:var(--am2);color:var(--am);border:1px solid var(--am3)}
 .b-scan{background:var(--gr2);color:var(--gr);border:1px solid var(--gr3)}
@@ -676,6 +677,8 @@ function detectTrackingPkgs(pkgs){
           if(nfDetalhe&&!p.nf){p.nf=String(nfDetalhe).trim(); console.log('✅ NF '+p.mkt.toUpperCase()+' #'+p.numero+': '+p.nf);}
           sv('expv5_pkgs',packages);
           renderMktGrid();
+          // Avisa quando último tracking carregou
+          if(i>=pkgs.length) toast('✅ Trackings carregados — pode bipar!','ok');
         }
         next();
       })
@@ -813,6 +816,7 @@ function pullFromBling(){
     packages=newPkgs.concat(packages);
     sv('expv5_pkgs',packages);
     toast(newPkgs.length+' pedidos carregados','ok');
+    if(semTracking_count>0) toast('Buscando tracking de '+semTracking_count+' pedido(s)... aguarde','warn');
     renderMktGrid(); updateBadge();
     var mlPkgs=newPkgs.filter(function(p){return p.mkt==='ml';});
     if(mlPkgs.length>0) detectFlexML(mlPkgs);
@@ -820,6 +824,7 @@ function pullFromBling(){
     var semTracking=newPkgs.filter(function(p){
       return !p.numeracao && (p.mkt==='tiktok'||p.mkt==='shopee'||p.mkt==='magalu'||p.mkt==='amazon');
     });
+    var semTracking_count=semTracking.length;
     if(semTracking.length>0) detectTrackingPkgs(semTracking);
     resetSyncBtn();
   }
@@ -952,11 +957,14 @@ function renderPkgList(){
     return '<div class="pkg-row '+(ativo?'scanned':'')+'">'+
       fotoHtml+
       '<div style="flex:1;min-width:0">'+
-      '<div class="pkg-num">'+
-        (p.nf?'<span style="color:var(--gr)">NF '+p.nf+' · </span>':'')+
-        p.numero+
-        (p.numLoja?'<span style="color:var(--bl);font-size:11px"> · 🛒'+p.numLoja+'</span>':'')+
-        (p.numeracao?'<span style="color:var(--th);font-size:10px"> · 📦'+p.numeracao.slice(-6)+'</span>':'')+
+      // Linha 1: número do pedido Bling (principal)
+      '<div class="pkg-num">'+p.numero+'</div>'+
+      // Linha 2: NF · marketplace · tracking (tudo visível)
+      '<div class="pkg-sub">'+
+        (p.nf?'<span style="color:var(--gr)">NF '+p.nf+'</span>':
+              '<span style="color:var(--th)">NF —</span>')+
+        (p.numLoja?'<span style="color:var(--bl)">🛒 '+p.numLoja+'</span>':'<span style="color:var(--th)">🛒 —</span>')+
+        (p.numeracao?'<span style="color:var(--tm)">📦 '+p.numeracao+'</span>':'<span style="color:var(--th)">📦 —</span>')+
       '</div>'+
       '<div class="pkg-dest">'+p.destinatario+'</div>'+
       '</div>'+
@@ -1100,7 +1108,12 @@ function handleScan(rawCode,photo){
   document.getElementById('wrongAlert').classList.remove('show');
 
   function match(p){
-    return p.etiqueta===code||p.numero===code||String(p.blingId)===code||(p.numeracao&&p.numeracao===code);
+    var c=code.toUpperCase().replace(/\s/g,'');
+    return String(p.etiqueta).toUpperCase()===c
+        || String(p.numero)===c
+        || String(p.blingId)===c
+        || (p.numeracao&&String(p.numeracao).toUpperCase()===c)
+        || (p.numLoja&&String(p.numLoja).replace(/\s/g,'').toUpperCase()===c);
   }
   var pkg=null, wrongPkg=null, already=null;
   for(var i=0;i<packages.length;i++){
