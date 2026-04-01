@@ -785,6 +785,7 @@ async function pullFromBling(){
         destinatario:o.contato?.nome||'—',
         rastreio,
         servico:svc, lojaId, mkt,
+        blingStatus: Number(o.situacao?.id||0),
         date:today, pulledAt:nowTS(),
         status:'pendente', colT:null, blingId:o.id
       };
