@@ -1901,17 +1901,21 @@ function finalizeColeta(){
   closeColeta(); renderMktGrid(); updateBadge();
 }
 function updateBlingStatus(id){
+  // Bling v3: PATCH /pedidos/vendas/{id}/situacoes/{idSituacao} sem body
   apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH'})
   .then(function(r){
     if(r.ok){
-      console.log('✅ Bling atualizado para DESPACHADO: blingId='+id);
+      console.log('✅ DESPACHADO: #'+id);
     } else {
-      console.warn('⚠ Falha ao atualizar Bling ('+r.status+'): blingId='+id+' — tentando novamente em 5s');
-      setTimeout(function(){
-        apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH'})
-        .then(function(r2){console.log(r2.ok?'✅ Retry OK':'❌ Retry falhou: '+r2.status);})
-        .catch(function(){});
-      },5000);
+      return r.text().then(function(txt){
+        console.warn('⚠ Falha PATCH blingId='+id+' status='+r.status+' resp='+txt.substring(0,100));
+        // Retry após 3s
+        setTimeout(function(){
+          apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH',headers:{'Content-Type':'application/json'},body:body})
+          .then(function(r2){console.log(r2.ok?'✅ Retry OK #'+id:'❌ Retry falhou #'+id+': '+r2.status);})
+          .catch(function(){});
+        },3000);
+      });
     }
   })
   .catch(function(e){console.error('❌ updateBlingStatus erro:',e.message);});
@@ -2764,15 +2768,24 @@ function loadFromServer(cb){
 // ═══ INIT ═══
 function initApp(){
   packages=ld('expv5_pkgs',[]); scans=ld('expv5_scans',[]);
-  // Limpa valores [object Object] salvos incorretamente
+  // Limpa valores incorretos no localStorage
   var cleaned=false;
   packages.forEach(function(p){
     if(p.numeracao&&String(p.numeracao).toLowerCase().indexOf('object')!==-1){
-      console.log('🧹 Limpando numeracao inválida: #'+p.numero+' → '+p.numeracao);
       p.numeracao=''; cleaned=true;
     }
     if(p.numLoja&&String(p.numLoja).toLowerCase().indexOf('object')!==-1){
       p.numLoja=''; cleaned=true;
+    }
+    // Remove urgente de pedidos Shopee Xpress (não é FLEX)
+    if(p.urgente&&p.mkt==='shopee'){
+      var svcLow=(p.servico||'').toLowerCase();
+      var validFlex=FLEX_KEYWORDS.some(function(f){return svcLow.indexOf(f)!==-1;});
+      if(!validFlex){
+        p.urgente=false;
+        console.log('🧹 Removendo urgente indevido Shopee: #'+p.numero+' ('+p.servico+')');
+        cleaned=true;
+      }
     }
   });
   if(cleaned){sv('expv5_pkgs',packages); console.log('🧹 localStorage limpo');}
