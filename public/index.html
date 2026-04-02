@@ -1413,6 +1413,8 @@ function handleScan(rawCode,photo){
   scans.unshift({etiqueta:chave,mkt:activeMkt,date:today,time:nowTS(),photo:photo,destinatario:pkg.destinatario,numero:pkg.numero});
   sv('expv5_scans',scans);
   syncToServer();
+  // Upload da foto para o servidor (permite acesso de qualquer dispositivo)
+  if(photo) uploadScanPhoto(chave, today, photo);
   if(photo){var fl=document.getElementById('photoFlash');fl.classList.add('flash');setTimeout(function(){fl.classList.remove('flash');},150);}
   beepSuccess();
   showFb('✓ '+pkg.numero+' · '+pkg.destinatario,'ok');
@@ -1439,23 +1441,37 @@ function verFotoScan(etiqueta){
   var today=todayStr();
   var scanItem=null;
   for(var i=0;i<scans.length;i++){
-    if(scans[i].etiqueta===etiqueta&&scans[i].date===today&&scans[i].tipo!=='lote'){
+    if(scans[i].etiqueta===etiqueta&&scans[i].tipo!=='lote'){
       scanItem=scans[i]; break;
     }
   }
-  if(!scanItem||!scanItem.photo){
-    // Foto existe só no dispositivo onde foi capturada (localStorage local)
-    openModal('<div class="modal-img-wrap" style="text-align:center;padding:20px">'+
-      '<div style="font-size:48px;margin-bottom:16px">📷</div>'+
-      '<div style="color:var(--tx);font-size:14px;font-weight:600;margin-bottom:8px">Foto não disponível neste dispositivo</div>'+
-      '<div style="color:var(--tm);font-size:12px;line-height:1.6">As fotos das etiquetas são salvas no<br>celular onde foram capturadas.<br><br>Acesse pelo celular da expedição<br>para ver esta imagem.</div>'+
-      '<button class="modal-close" onclick="closeTopModal()">✕</button>'+
-      '</div>'+
-      '<button class="modal-back" onclick="closeTopModal()">← Fechar</button>');
+  // Tenta buscar foto: 1) localStorage, 2) servidor
+  var localPhoto=scanItem&&scanItem.photo?scanItem.photo:null;
+  var scanDate=scanItem?scanItem.date:today;
+  if(!localPhoto){
+    // Busca no servidor
+    var key='scan_'+etiqueta+'_'+scanDate;
+    getPhotoFromServer(key, function(serverPhoto){
+      if(serverPhoto){
+        _showScanPhotoModal(serverPhoto, scanItem);
+      } else {
+        openModal('<div class="modal-img-wrap" style="text-align:center;padding:20px">'+
+          '<div style="font-size:48px;margin-bottom:16px">📷</div>'+
+          '<div style="color:var(--tx);font-size:14px;font-weight:600;margin-bottom:8px">Foto não encontrada</div>'+
+          '<div style="color:var(--tm);font-size:12px;line-height:1.6">A foto ainda não foi sincronizada<br>com o servidor, ou o pacote<br>foi bipado sem câmera.</div>'+
+          '<button class="modal-close" onclick="closeTopModal()">✕</button>'+
+          '</div>'+
+          '<button class="modal-back" onclick="closeTopModal()">← Fechar</button>');
+      }
+    });
     return;
   }
+  _showScanPhotoModal(localPhoto, scanItem);
+}
+
+function _showScanPhotoModal(photo, scanItem){
   var p=null;
-  for(var i=0;i<packages.length;i++){if(packages[i].etiqueta===etiqueta){p=packages[i];break;}}
+  if(scanItem) for(var i=0;i<packages.length;i++){if(packages[i].etiqueta===scanItem.etiqueta){p=packages[i];break;}}
   var infoBar='<div class="modal-info">';
   // Ordem: NF | #Bling | #Marketplace | destinatário | data/hora
   if(p&&p.nf)   infoBar+='<div style="font-size:13px;font-weight:700;color:var(--gr)">NF '+p.nf+'</div>';
@@ -1467,7 +1483,7 @@ function verFotoScan(etiqueta){
   infoBar+='<div style="font-size:10px;color:var(--th);margin-top:2px">📅 '+scanItem.date+' '+scanItem.time+'</div>';
   infoBar+='</div>';
   openModal('<div class="modal-img-wrap">'+
-    '<img src="'+scanItem.photo+'" alt="etiqueta">'+
+    '<img src="'+photo+'" alt="etiqueta">'+
     infoBar+
     '<button class="modal-close" onclick="closeTopModal()">✕</button>'+
     '</div>'+
@@ -1659,6 +1675,8 @@ function finalizeColeta(){
   scans.unshift({tipo:'lote',id:loteId,mkt:activeMkt,date:todayStr(),time:now,qtd:qtdEntregues,problemas:problemaPkgs.length,obs:obs,fotosVeiculo:fotosVeiculo.slice()});
   sv('expv5_scans',scans);
   syncToServer();
+  // Upload das fotos do veículo para o servidor
+  uploadLotePhotos(loteId, fotosVeiculo);
   colSession.filter(function(c){return problemaPkgs.indexOf(c)===-1;}).forEach(function(chave){
     for(var i=0;i<packages.length;i++){
       if(packages[i].etiqueta===chave&&packages[i].date===todayStr()){
@@ -2298,6 +2316,27 @@ function stripPhotos(arr){
     });
     return copy;
   });
+}
+
+// ─── Upload de fotos para o servidor ────────────────────────────────────────
+function uploadScanPhoto(etiqueta, date, photo){
+  if(!photo||!etiqueta) return;
+  var key='scan_'+etiqueta+'_'+date;
+  apiFetch('/photos/scan',{method:'POST',body:JSON.stringify({key:key,photo:photo})})
+  .catch(function(){});
+}
+
+function uploadLotePhotos(loteId, fotos){
+  if(!loteId||!fotos||!fotos.length) return;
+  apiFetch('/photos/lote',{method:'POST',body:JSON.stringify({loteId:loteId,fotos:fotos})})
+  .catch(function(){});
+}
+
+function getPhotoFromServer(key, cb){
+  apiFetch('/photos/scan/'+key)
+  .then(function(r){return r.ok?r.json():null;})
+  .then(function(d){cb(d&&d.photo?d.photo:null);})
+  .catch(function(){cb(null);});
 }
 
 function syncToServer(){
