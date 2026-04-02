@@ -1879,12 +1879,18 @@ function finalizeColeta(){
   syncToServer();
   // Upload das fotos do veículo para o servidor
   uploadLotePhotos(loteId, fotosVeiculo);
-  colSession.filter(function(c){return problemaPkgs.indexOf(c)===-1;}).forEach(function(chave){
+  // Atualiza Bling com delay para evitar rate limit (1100ms entre cada)
+  var toUpdate=colSession.filter(function(c){return problemaPkgs.indexOf(c)===-1;});
+  var blingIds=[];
+  toUpdate.forEach(function(chave){
     for(var i=0;i<packages.length;i++){
       if(packages[i].etiqueta===chave&&packages[i].date===todayStr()){
-        updateBlingStatus(packages[i].blingId); break;
+        blingIds.push(packages[i].blingId); break;
       }
     }
+  });
+  blingIds.forEach(function(id,idx){
+    setTimeout(function(){updateBlingStatus(id);},idx*1200);
   });
   var mktInfo=MKT[activeMkt]||{n:activeMkt};
   var msgFinal=mktInfo.n+': '+qtdEntregues+' entregues'+(problemaPkgs.length>0?', '+problemaPkgs.length+' problema(s)':'')+' ✓';
@@ -2783,9 +2789,10 @@ function initApp(){
     setTimeout(pullFromBling,1200);
   });
 
-  // Auto-sync a cada 30s para manter status atualizado entre dispositivos
+  // Auto-sync a cada 30s — envia E recebe dados entre dispositivos
   setInterval(function(){
-    loadFromServer(function(){
+    syncToServer(); // push: envia dados locais
+    loadFromServer(function(){ // pull: recebe dados de outros
       renderMktGrid(); updateBadge();
       if(activeMkt) renderPkgList();
     });
