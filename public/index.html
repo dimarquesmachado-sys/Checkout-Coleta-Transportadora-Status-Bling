@@ -1295,7 +1295,7 @@ function renderMktGrid(){
     cards.push('<div class="mkt-card '+(fActive?'active':'')+(fDone?' done':'')+'" onclick="selectMkt(\'flex\')" style="'+(fDone?'':'border-color:rgba(224,85,85,.4)')+'">'+
       '<div class="mkt-head"><span class="mkt-chip c-rd">⚡ FLEX URGENTE</span></div>'+
       '<div class="mkt-count" style="color:'+(fDone?'var(--gr)':fp>0?'#F09090':'var(--gr)')+'">'+fp+'</div>'+
-      '<div class="mkt-sub">'+fp+' pend · '+fc+' col / '+flexPkgs.length+' total</div>'+
+      '<div class="mkt-sub">'+(fDone?'✓ todos coletados':fp+' pend · '+fc+' col')+'</div>'+
       '<div class="mkt-prog"><div class="mkt-prog-bar" style="width:'+fpct+'%;background:#E05555"></div></div>'+
       '</div>');
   }
@@ -1311,8 +1311,8 @@ function renderMktGrid(){
     var info=MKT[m]||{cls:'c-outro',icon:'📦',n:m};
     cards.push('<div class="mkt-card '+(isActive?'active':'')+(isDone?' done':'')+'" onclick="selectMkt(\''+m+'\')" style="'+(isEmpty?'opacity:.45':'')+'">'+
       '<div class="mkt-head"><span class="mkt-chip '+info.cls+'">'+info.icon+' '+info.n+'</span></div>'+
-      '<div class="mkt-count" style="color:'+(isDone?'var(--gr)':isEmpty?'var(--th)':'var(--tx)')+'">'+list.length+'</div>'+
-      '<div class="mkt-sub">'+(isEmpty?'nenhum hoje':mc+' col · '+mp+' pend')+'</div>'+
+      '<div class="mkt-count" style="color:'+(isDone?'var(--gr)':isEmpty?'var(--th)':mp>0?'var(--tx)':'var(--gr)')+'">'+mp+'</div>'+
+      '<div class="mkt-sub">'+(isEmpty?'nenhum hoje':isDone?'✓ todos coletados':mp+' pend · '+mc+' col')+'</div>'+
       '<div class="mkt-prog"><div class="mkt-prog-bar" style="width:'+pct+'%"></div></div>'+
       '</div>');
   });
@@ -1418,7 +1418,11 @@ function renderProgress(){
   var encBtn=document.getElementById('encerrarBtn');
   if(colSession.length>0&&pend.length>0){
     encBtn.classList.add('show');
-    encBtn.textContent='⚠ Encerrar Coleta ('+colSession.length+' bipados, '+pend.length+' pendentes)';
+    encBtn.textContent='🚨 ENCERRAR COLETA ('+colSession.length+' bipados, '+pend.length+' pendentes)';
+    encBtn.style.background='var(--rd)';
+    encBtn.style.color='#fff';
+    encBtn.style.fontSize='15px';
+    encBtn.style.fontWeight='800';
   } else {
     encBtn.classList.remove('show');
   }
@@ -1730,14 +1734,20 @@ function onFotoSelecionada(input){
     fotosVeiculo.push(e.target.result);
     renderFotosVeiculo();
     var btn=document.getElementById('btnFotoVeiculo');
+    toast('Foto '+fotosVeiculo.length+'/3 salva ✓','ok');
     if(fotosVeiculo.length>=3){
       btn.className='foto-btn done';
-      btn.textContent='✓ '+fotosVeiculo.length+' fotos';
+      btn.textContent='✓ 3 fotos tiradas';
       document.getElementById('fotoAlert').style.display='none';
     } else {
-      btn.textContent='📷 Tirar foto ('+fotosVeiculo.length+'/3)';
+      btn.textContent='📷 Foto '+(fotosVeiculo.length+1)+'/3 — toque para tirar';
+      // Abre câmera automaticamente para próxima foto após 800ms
+      setTimeout(function(){
+        if(fotosVeiculo.length<3){
+          document.getElementById('fotoInput').click();
+        }
+      },800);
     }
-    toast('Foto '+fotosVeiculo.length+' salva ✓','ok');
   };
   reader.readAsDataURL(file);
   input.value='';
@@ -2612,11 +2622,14 @@ function detectNF(pkgsSemNF, onDone){
     var pkg=pkgsSemNF[i++];
     if(pkg.nf){next();return;} // já tem NF
     setTimeout(function(){
-      apiFetch('/bling/nfe?idPedidoVenda='+pkg.blingId+'&limite=1')
+      var _nfUrl='/bling/nfe?idPedidoVenda='+pkg.blingId+'&limite=1';
+      console.log('🧾 NF URL: '+_nfUrl+' pedido=#'+pkg.numero+' blingId='+pkg.blingId);
+      apiFetch(_nfUrl)
       .then(function(r){if(!r.ok)return null;return r.json();})
       .then(function(d){
         if(!d) return;
         var nfes=d.data||[];
+        console.log('🧾 NF RESP #'+pkg.numero+':', JSON.stringify(nfes[0]||'vazio'));
         if(nfes.length>0){
           var nfe=nfes[0];
           var num=(nfe.numero)||(nfe.nfe&&nfe.nfe.numero)||(nfe.numeroDocumento)||'';
