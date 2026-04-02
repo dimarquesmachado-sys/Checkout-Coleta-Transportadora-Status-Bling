@@ -102,7 +102,7 @@ header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;
 @keyframes pulse-btn{0%,100%{box-shadow:0 0 0 0 rgba(224,85,85,.4)}50%{box-shadow:0 0 0 8px rgba(224,85,85,0)}}
 
 /* CAMERA */
-.cam-wrap{margin:0 14px;border-radius:var(--rl);overflow:hidden;background:#000;position:relative;aspect-ratio:16/9;max-height:42vh;display:none}
+.cam-wrap{margin:0 14px;border-radius:var(--rl);overflow:hidden;background:#000;position:relative;aspect-ratio:4/3;display:none}
 .cam-wrap.show{display:block}
 #camVideo{width:100%;height:100%;object-fit:cover;display:block}
 .cam-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
@@ -728,33 +728,18 @@ function detectTrackingPkgs(pkgs){
           console.log('🔍 NÚMEROS LONGOS NO ORDER:', nums.slice(0,10).join(', '));
         }
 
-        // Extrai string de tracking — campo pode ser string, número ou objeto
-        function extractStr(v){
-          if(!v) return '';
-          if(typeof v==='string') return v.trim();
-          if(typeof v==='number') return String(v);
-          // objeto: tenta pegar campo interno com número longo
-          if(typeof v==='object'){
-            var keys=Object.keys(v);
-            for(var ki=0;ki<keys.length;ki++){
-              var val=v[keys[ki]];
-              if(typeof val==='string'&&val.match(/^[0-9A-Z]{6,}$/i)) return val.trim();
-              if(typeof val==='number'&&String(val).length>=6) return String(val);
-            }
-          }
-          return '';
-        }
         var vol = order.transporte&&order.transporte.volumes&&order.transporte.volumes[0];
-        var track = extractStr(vol&&vol.numeracao)
-                 || extractStr(vol&&vol.codigoRastreio)
-                 || extractStr(vol&&vol.codigoRastreamento)
-                 || extractStr(vol&&vol.tracking)
-                 || extractStr(vol&&vol.numero)
-                 || extractStr(vol&&vol.rastreio)
-                 || extractStr(vol&&vol.etiqueta)
-                 || extractStr(order.transporte&&order.transporte.codigoRastreamento)
-                 || extractStr(order.transporte&&order.transporte.codigoRastreio)
-                 || extractStr(order.transporte&&order.transporte.numeroRastreio)
+        var track = extractTrackStr(vol&&vol.numeracao)
+                 || extractTrackStr(vol&&vol.codigoRastreio)
+                 || extractTrackStr(vol&&vol.codigoRastreamento)
+                 || extractTrackStr(vol&&vol.tracking)
+                 || extractTrackStr(vol&&vol.numero)
+                 || extractTrackStr(vol&&vol.rastreio)
+                 || extractTrackStr(order.transporte&&order.transporte.codigoRastreamento)
+                 || extractTrackStr(order.transporte&&order.transporte.codigoRastreio)
+                 || extractTrackStr(order.transporte&&order.transporte.numeroRastreio)
+                 // Fallback: varre TODO o objeto transporte buscando número de tracking
+                 || extractTrackStr(order.transporte)
                  || '';
 
         // NF — tenta todos os caminhos
@@ -832,14 +817,15 @@ function detectFlexML(mlPkgs, onDone){
               (svcNome||'ML Flex');
             // Extrai tracking com TODOS os caminhos possíveis
             var vol=order.transporte&&order.transporte.volumes&&order.transporte.volumes[0];
-            function exStr(v){if(!v)return '';if(typeof v==='string')return v.trim();if(typeof v==='number')return String(v);if(typeof v==='object'){var ks=Object.keys(v);for(var ki=0;ki<ks.length;ki++){var vv=v[ks[ki]];if(typeof vv==='string'&&vv.match(/^[0-9A-Z]{6,}$/i))return vv.trim();if(typeof vv==='number'&&String(vv).length>=6)return String(vv);}}return '';}
-            var nr=exStr(vol&&vol.numeracao)
-                ||exStr(vol&&vol.codigoRastreio)
-                ||exStr(vol&&vol.codigoRastreamento)
-                ||exStr(vol&&vol.tracking)
-                ||exStr(vol&&vol.numero)
-                ||exStr(order.transporte&&order.transporte.codigoRastreamento)
-                ||exStr(order.transporte&&order.transporte.codigoRastreio)
+            var nr=extractTrackStr(vol&&vol.numeracao)
+                ||extractTrackStr(vol&&vol.codigoRastreio)
+                ||extractTrackStr(vol&&vol.codigoRastreamento)
+                ||extractTrackStr(vol&&vol.tracking)
+                ||extractTrackStr(vol&&vol.numero)
+                ||extractTrackStr(order.transporte&&order.transporte.codigoRastreamento)
+                ||extractTrackStr(order.transporte&&order.transporte.codigoRastreio)
+                // Fallback: varre TODO o objeto transporte
+                ||extractTrackStr(order.transporte)
                 ||'';
             // Log para debug
             console.log('🔍 FLEX ML #'+p.numero+' transporte:', JSON.stringify(order.transporte||{}).substring(0,400));
@@ -1304,9 +1290,7 @@ function selectMkt(mkt){
   document.getElementById('biparBtn').innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="8" y="4" width="2" height="16" rx="1" fill="currentColor"/><rect x="12" y="4" width="3" height="16" rx="1" fill="currentColor"/><rect x="17" y="4" width="2" height="16" rx="1" fill="currentColor"/><rect x="21" y="4" width="1" height="16" rx="1" fill="currentColor"/></svg> BIPAR ETIQUETAS';
   document.getElementById('progArea').style.display='none';
   renderPkgList(); renderMktGrid();
-  document.getElementById('coletaPanel').scrollIntoView({behavior:'smooth',block:'nearest'});
-  // Scroll para o topo da página para câmera ficar visível
-  window.scrollTo({top:0,behavior:'smooth'});
+  document.getElementById('coletaPanel').scrollIntoView({behavior:'smooth',block:'start'});
   // Atualiza só essa loja no Bling — verifica se tem pedido novo
   var agoraMs=Date.now();
   var lastMktPull=window['_lastMktPull_'+mkt]||0;
@@ -2215,6 +2199,35 @@ document.addEventListener('click',function(e){
     }
   });
 });
+
+// Extrai string de tracking de qualquer valor (string, número, ou objeto aninhado)
+function extractTrackStr(v, depth){
+  depth=depth||0;
+  if(depth>4||v===null||v===undefined) return '';
+  if(typeof v==='string'){
+    var s=v.trim();
+    // Aceita códigos alfanuméricos de 6+ caracteres (tracking ML, Shopee, etc.)
+    return (s.length>=6&&!/object/i.test(s))?s:'';
+  }
+  if(typeof v==='number') return String(v).length>=6?String(v):'';
+  if(Array.isArray(v)){
+    for(var ai=0;ai<v.length;ai++){var ar=extractTrackStr(v[ai],depth+1);if(ar)return ar;}
+    return '';
+  }
+  if(typeof v==='object'){
+    // Tenta campos prioritários primeiro
+    var prio=['numeracao','numero','codigoRastreio','codigoRastreamento','tracking','rastreio','etiqueta'];
+    for(var pi=0;pi<prio.length;pi++){
+      if(v[prio[pi]]!==undefined){var pr=extractTrackStr(v[prio[pi]],depth+1);if(pr)return pr;}
+    }
+    // Depois todos os outros campos
+    var ks=Object.keys(v);
+    for(var ki=0;ki<ks.length;ki++){
+      if(prio.indexOf(ks[ki])===-1){var kr=extractTrackStr(v[ks[ki]],depth+1);if(kr)return kr;}
+    }
+  }
+  return '';
+}
 
 function formatDate(dateStr){
   if(!dateStr) return '';
