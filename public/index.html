@@ -1895,7 +1895,20 @@ function finalizeColeta(){
   closeColeta(); renderMktGrid(); updateBadge();
 }
 function updateBlingStatus(id){
-  apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH'}).catch(function(){});
+  apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH'})
+  .then(function(r){
+    if(r.ok){
+      console.log('✅ Bling atualizado para DESPACHADO: blingId='+id);
+    } else {
+      console.warn('⚠ Falha ao atualizar Bling ('+r.status+'): blingId='+id+' — tentando novamente em 5s');
+      setTimeout(function(){
+        apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH'})
+        .then(function(r2){console.log(r2.ok?'✅ Retry OK':'❌ Retry falhou: '+r2.status);})
+        .catch(function(){});
+      },5000);
+    }
+  })
+  .catch(function(e){console.error('❌ updateBlingStatus erro:',e.message);});
 }
 
 // ═══ DIA ═══
