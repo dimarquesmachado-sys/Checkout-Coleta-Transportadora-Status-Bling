@@ -2425,7 +2425,11 @@ function uploadLotePhotos(loteId, fotos){
 function getPhotoFromServer(key, cb){
   apiFetch('/photos/scan/'+key)
   .then(function(r){return r.ok?r.json():null;})
-  .then(function(d){cb(d&&d.photo?d.photo:null);})
+  .then(function(d){
+    if(!d) return cb(null);
+    // Supabase retorna URL pública; memória retorna base64
+    cb(d.url||d.photo||null);
+  })
   .catch(function(){cb(null);});
 }
 
