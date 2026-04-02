@@ -936,11 +936,25 @@ function pullFromBling(){
     newPkgs.forEach(function(p){
       for(var i=0;i<existingToday.length;i++){
         if(existingToday[i].blingId===p.blingId){
+          // Preserva campos enriquecidos
           if(existingToday[i].urgente) p.urgente=true;
           if(existingToday[i].servico) p.servico=existingToday[i].servico;
           if(existingToday[i].numeracao) p.numeracao=existingToday[i].numeracao;
           if(existingToday[i].nfChave) p.nfChave=existingToday[i].nfChave;
           if(existingToday[i].nf) p.nf=existingToday[i].nf;
+          // ⚠ DEVOLUÇÃO: se estava coletado/problema mas voltou pro Bling como
+          // VERIFICADO (24), reseta para pendente — permite reexpedir
+          if((existingToday[i].status==='coletado'||existingToday[i].status==='problema')
+            && p.blingStatus===24){
+            p.status='pendente'; p.colT=null;
+            console.log('↩ Devolvido/reaberto: #'+p.numero+' — resetado para pendente');
+            toast('↩ '+p.numero+' voltou para pendente (Bling: VERIFICADO)','warn');
+          } else {
+            // Mantém status local (coletado/problema/pendente)
+            p.status=existingToday[i].status;
+            p.colT=existingToday[i].colT;
+            p.obs=existingToday[i].obs;
+          }
           break;
         }
       }
