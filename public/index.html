@@ -826,6 +826,11 @@ function detectFlexML(mlPkgs, onDone){
           if(nr){
             p.numeracao=String(nr).replace(/\s/g,'').toUpperCase();
             console.log('✅ Tracking ML'+(isFlex?' FLEX':'')+'  #'+p.numero+': '+p.numeracao);
+          } else if(!isFlex){
+            // Mostra campos disponíveis em toast para debug
+            var tJson=JSON.stringify(order.transporte||{});
+            console.warn('⚠ ML SEM TRACKING #'+p.numero+' — transporte: '+tJson);
+            toast('DEBUG ML #'+p.numero+': '+tJson.substring(0,120),'warn');
           }
           // NF e chave DANFE
           var nfFlex=(order.notaFiscal&&order.notaFiscal.numero)||(order.nfe&&order.nfe.numero)||'';
