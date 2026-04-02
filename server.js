@@ -356,6 +356,11 @@ app.get('/admin/migrar-status', (req, res) => {
 let sharedPackages = [];
 let sharedScans    = [];
 
+// ═══ FOTOS — armazenadas em memória no servidor (acessíveis de qualquer dispositivo) ═══
+// Key: "scan_{etiqueta}_{date}" ou "lote_{loteId}_{idx}"
+const photoStore = new Map();
+const MAX_PHOTOS = 2000; // limite de fotos em memória
+
 app.get('/sync/data', requireAuth, (req, res) => {
   res.json({ packages: sharedPackages, scans: sharedScans });
 });
@@ -374,6 +379,42 @@ app.post('/sync/scans', requireAuth, (req, res) => {
     sharedScans = scans;
   }
   res.json({ ok: true });
+});
+
+// ─── Upload de foto de scan ─────────────────────────────────────────────────
+app.post('/photos/scan', requireAuth, (req, res) => {
+  const { key, photo } = req.body;
+  if(!key || !photo) return res.status(400).json({ error: 'key e photo obrigatórios' });
+  if(photoStore.size >= MAX_PHOTOS){
+    // Remove a mais antiga
+    const firstKey = photoStore.keys().next().value;
+    photoStore.delete(firstKey);
+  }
+  photoStore.set(key, photo);
+  res.json({ ok: true });
+});
+
+app.get('/photos/scan/:key', requireAuth, (req, res) => {
+  const photo = photoStore.get(req.params.key);
+  if(!photo) return res.status(404).json({ error: 'Foto não encontrada' });
+  res.json({ photo });
+});
+
+// ─── Upload de fotos do veículo (lote) ─────────────────────────────────────
+app.post('/photos/lote', requireAuth, (req, res) => {
+  const { loteId, fotos } = req.body;
+  if(!loteId || !Array.isArray(fotos)) return res.status(400).json({ error: 'loteId e fotos obrigatórios' });
+  fotos.forEach((f, idx) => {
+    if(f) photoStore.set('lote_'+loteId+'_'+idx, f);
+  });
+  res.json({ ok: true, count: fotos.length });
+});
+
+app.get('/photos/lote/:loteId/:idx', requireAuth, (req, res) => {
+  const key = 'lote_'+req.params.loteId+'_'+req.params.idx;
+  const photo = photoStore.get(key);
+  if(!photo) return res.status(404).json({ error: 'Foto não encontrada' });
+  res.json({ photo });
 });
 
 app.listen(PORT, () => {
