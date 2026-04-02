@@ -803,49 +803,42 @@ function detectFlexML(mlPkgs, onDone){
         var svcTrp=((order.transporte&&order.transporte.transportadora&&order.transporte.transportadora.nome)||'').toLowerCase();
         var allSvc=svcNome+' '+svcVol+' '+svcTrp;
         var isFlex=FLEX_KEYWORDS.some(function(f){return allSvc.indexOf(f)!==-1;});
-        if(isFlex){
-          var p=packages.find?packages.find(function(x){return x.blingId===pkg.blingId;}):null;
-          if(!p){for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}}
-          if(p){
+        // Busca o pacote independente de ser FLEX ou ML normal
+        var p=packages.find?packages.find(function(x){return x.blingId===pkg.blingId;}):null;
+        if(!p){for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}}
+        if(p){
+          // Extrai tracking — MESMA lógica para FLEX e ML normal
+          var vol=order.transporte&&order.transporte.volumes&&order.transporte.volumes[0];
+          var nr=extractTrackStr(vol&&vol.numeracao)
+              ||extractTrackStr(vol&&vol.codigoRastreio)
+              ||extractTrackStr(vol&&vol.codigoRastreamento)
+              ||extractTrackStr(vol&&vol.tracking)
+              ||extractTrackStr(vol&&vol.numero)
+              ||extractTrackStr(order.transporte&&order.transporte.codigoRastreamento)
+              ||extractTrackStr(order.transporte&&order.transporte.codigoRastreio)
+              ||'';
+          if(isFlex){
             p.urgente=true;
             p.servico=order.transporte&&order.transporte.volumes&&order.transporte.volumes[0]?
               (order.transporte.volumes[0].servico||svcNome||'ML Flex'):
               (svcNome||'ML Flex');
-            // Extrai tracking com TODOS os caminhos possíveis
-            var vol=order.transporte&&order.transporte.volumes&&order.transporte.volumes[0];
-            var nr=extractTrackStr(vol&&vol.numeracao)
-                ||extractTrackStr(vol&&vol.codigoRastreio)
-                ||extractTrackStr(vol&&vol.codigoRastreamento)
-                ||extractTrackStr(vol&&vol.tracking)
-                ||extractTrackStr(vol&&vol.numero)
-                ||extractTrackStr(order.transporte&&order.transporte.codigoRastreamento)
-                ||extractTrackStr(order.transporte&&order.transporte.codigoRastreio)
-                ||'';
-            // Log para debug
-            console.log('🔍 FLEX ML #'+p.numero+' transporte:', JSON.stringify(order.transporte||{}).substring(0,400));
-            if(nr){
-              p.numeracao=String(nr).replace(/\s/g,'').toUpperCase();
-              console.log('✅ Tracking FLEX ML #'+p.numero+': '+p.numeracao);
-            } else {
-              console.warn('⚠ SEM tracking FLEX ML #'+p.numero+' — campos transporte:', Object.keys(order.transporte||{}));
-            }
-            // Captura NF e chave DANFE se disponível
-            var nfFlex=(order.notaFiscal&&order.notaFiscal.numero)||(order.nfe&&order.nfe.numero)||'';
-            var nfChaveFlex=(order.notaFiscal&&order.notaFiscal.chave)||(order.nfe&&order.nfe.chave)||'';
-            if(nfFlex&&!p.nf){p.nf=String(nfFlex).trim(); console.log('✅ NF FLEX #'+p.numero+': '+p.nf);}
-            if(nfChaveFlex&&!p.nfChave){p.nfChave=String(nfChaveFlex).replace(/\s/g,'');}
-            // Captura numLoja E Pack ID / número de envio do ML
-            var numLojaDetalhe=(order.numeroPedidoLoja)||(order.loja&&order.loja.numeroPedido)||'';
-            if(numLojaDetalhe&&!p.numLoja) p.numLoja=String(numLojaDetalhe).trim();
-            // Pack ID (campo diferente no ML)
-            var packId=(order.transporte&&order.transporte.volumes&&order.transporte.volumes[0]&&
-                       (order.transporte.volumes[0].codigoPedido||order.transporte.volumes[0].packId||
-                        order.transporte.volumes[0].numeroRemessa))||'';
-            if(packId&&!p.numLoja) p.numLoja=String(packId).trim();
-            sv('expv5_pkgs',packages);
-            if(i%5===0) syncToServer(); // sync a cada 5 pedidos
-            renderMktGrid();
           }
+          if(nr){
+            p.numeracao=String(nr).replace(/\s/g,'').toUpperCase();
+            console.log('✅ Tracking ML'+(isFlex?' FLEX':'')+'  #'+p.numero+': '+p.numeracao);
+          }
+          // NF e chave DANFE
+          var nfFlex=(order.notaFiscal&&order.notaFiscal.numero)||(order.nfe&&order.nfe.numero)||'';
+          var nfChaveFlex=(order.notaFiscal&&order.notaFiscal.chave)||(order.nfe&&order.nfe.chave)||'';
+          if(nfFlex&&!p.nf) p.nf=String(nfFlex).trim();
+          if(nfChaveFlex&&!p.nfChave) p.nfChave=String(nfChaveFlex).replace(/\s/g,'');
+          // numLoja
+          var numLojaDetalhe=(order.numeroPedidoLoja)||(order.loja&&order.loja.numeroPedido)||'';
+          if(numLojaDetalhe&&!p.numLoja) p.numLoja=String(numLojaDetalhe).trim();
+          sv('expv5_pkgs',packages);
+          if(i%5===0) syncToServer();
+          renderMktGrid();
+          if(activeMkt) renderPkgList();
         }
         next();
       })
