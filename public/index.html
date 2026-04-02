@@ -2782,6 +2782,14 @@ function initApp(){
     renderMktGrid(); updateBadge();
     setTimeout(pullFromBling,1200);
   });
+
+  // Auto-sync a cada 30s para manter status atualizado entre dispositivos
+  setInterval(function(){
+    loadFromServer(function(){
+      renderMktGrid(); updateBadge();
+      if(activeMkt) renderPkgList();
+    });
+  }, 30000);
 }
 
 (function(){
