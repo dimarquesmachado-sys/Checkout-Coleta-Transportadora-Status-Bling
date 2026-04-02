@@ -1418,11 +1418,14 @@ function renderProgress(){
   var encBtn=document.getElementById('encerrarBtn');
   if(colSession.length>0&&pend.length>0){
     encBtn.classList.add('show');
-    encBtn.textContent='🚨 ENCERRAR COLETA ('+colSession.length+' bipados, '+pend.length+' pendentes)';
-    encBtn.style.background='var(--rd)';
+    encBtn.innerHTML='✅ ENCERRAR COLETA<br><span style="font-size:12px;font-weight:500;opacity:.85">'+colSession.length+' bipados · '+pend.length+' pendentes não despachados</span>';
+    encBtn.style.background='#1a7a3a';
     encBtn.style.color='#fff';
     encBtn.style.fontSize='15px';
     encBtn.style.fontWeight='800';
+    encBtn.style.lineHeight='1.4';
+    encBtn.style.height='auto';
+    encBtn.style.padding='14px';
   } else {
     encBtn.classList.remove('show');
   }
@@ -1740,13 +1743,9 @@ function onFotoSelecionada(input){
       btn.textContent='✓ 3 fotos tiradas';
       document.getElementById('fotoAlert').style.display='none';
     } else {
-      btn.textContent='📷 Foto '+(fotosVeiculo.length+1)+'/3 — toque para tirar';
-      // Abre câmera automaticamente para próxima foto após 800ms
-      setTimeout(function(){
-        if(fotosVeiculo.length<3){
-          document.getElementById('fotoInput').click();
-        }
-      },800);
+      var proxima=fotosVeiculo.length+1;
+      btn.textContent='📷 Tirar foto '+proxima+'/3';
+      // NÃO abre câmera automaticamente — usuário toca quando pronto
     }
   };
   reader.readAsDataURL(file);
@@ -1807,6 +1806,7 @@ function renderProblemaList(){
 // ═══ ENCERRAR PARCIAL ═══
 function showEncerrar(){
   var pend=getPkgsAtivos().filter(function(p){return p.status==='pendente'&&colSession.indexOf(p.etiqueta)===-1;});
+  document.getElementById('encerrarBtn').classList.remove('show');
   document.getElementById('motivoArea').classList.add('show');
   document.getElementById('motivoText').value='';
   document.getElementById('motivoAlert').style.display='none';
