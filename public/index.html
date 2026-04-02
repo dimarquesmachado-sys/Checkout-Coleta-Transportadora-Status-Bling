@@ -1186,6 +1186,14 @@ function pullFromBling(){
       var semNF3=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
       if(semNF3.length>0) setTimeout(function(){detectNF(semNF3,null);},1200);
     }
+    // Garante que detectNF rode para todos sem NF ao final de qualquer fluxo
+    setTimeout(function(){
+      var semNFfinal=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
+      if(semNFfinal.length>0){
+        console.log('🧾 detectNF final: '+semNFfinal.length+' pedidos sem NF');
+        detectNF(semNFfinal,null);
+      }
+    },8000); // aguarda trackings carregarem (FLEX + semTracking + 1100ms cada)
     resetSyncBtn();
   }
   function resetSyncBtn(){
