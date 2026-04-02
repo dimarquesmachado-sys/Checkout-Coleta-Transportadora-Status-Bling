@@ -458,8 +458,22 @@ async function supabaseGet(fileName) {
   }
 }
 
+// Estado de quem está fazendo expedição agora
+const activeUsers = new Map(); // user → {user, mkt, ts}
+
 app.get('/sync/data', requireAuth, (req, res) => {
-  res.json({ packages: sharedPackages, scans: sharedScans });
+  const now = Date.now();
+  const active = [...activeUsers.values()].filter(u => now - u.ts < 1800000);
+  res.json({ packages: sharedPackages, scans: sharedScans, activeUsers: active });
+});
+
+app.post('/sync/active', requireAuth, (req, res) => {
+  const { user, mkt, ts } = req.body;
+  if(user){
+    if(mkt) activeUsers.set(user, { user, mkt, ts });
+    else activeUsers.delete(user);
+  }
+  res.json({ ok: true });
 });
 
 app.post('/sync/packages', requireAuth, (req, res) => {
