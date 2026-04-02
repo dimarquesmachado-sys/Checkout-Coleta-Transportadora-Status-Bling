@@ -708,7 +708,7 @@ function detectTrackingPkgs(pkgs){
   function next(){
     if(i>=pkgs.length) return;
     var pkg=pkgs[i++];
-    if(pkg.numeracao){next();return;}
+    if(pkg.numeracao&&String(pkg.numeracao).toLowerCase().indexOf('object')===-1){next();return;}
     setTimeout(function(){
       apiFetch('/bling/pedidos/vendas/'+pkg.blingId)
       .then(function(r){if(!r.ok)return null;return r.json();})
@@ -2676,11 +2676,11 @@ function initApp(){
   // Limpa valores [object Object] salvos incorretamente
   var cleaned=false;
   packages.forEach(function(p){
-    if(p.numeracao&&String(p.numeracao).indexOf('object')!==-1){
+    if(p.numeracao&&String(p.numeracao).toLowerCase().indexOf('object')!==-1){
       console.log('🧹 Limpando numeracao inválida: #'+p.numero+' → '+p.numeracao);
       p.numeracao=''; cleaned=true;
     }
-    if(p.numLoja&&String(p.numLoja).indexOf('object')!==-1){
+    if(p.numLoja&&String(p.numLoja).toLowerCase().indexOf('object')!==-1){
       p.numLoja=''; cleaned=true;
     }
   });
