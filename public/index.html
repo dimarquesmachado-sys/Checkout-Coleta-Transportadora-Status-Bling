@@ -247,6 +247,12 @@ header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;
 .motivo-confirm-btn{width:100%;height:46px;background:var(--am);color:#1A0B00;border:none;border-radius:var(--r);font-size:14px;font-weight:800;cursor:pointer;font-family:var(--sans)}
 .motivo-confirm-btn:active{transform:scale(.98)}
 
+/* BUSCA HISTÓRICO */
+.hist-highlight{background:rgba(74,158,255,.25);border-radius:3px;color:var(--bl);font-weight:700}
+.hist-stat-card{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:8px 12px;text-align:center;flex:1;min-width:70px}
+.hist-stat-val{font-size:20px;font-weight:700;font-family:var(--mono);line-height:1}
+.hist-stat-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--tm);margin-top:3px}
+
 /* DIA — SEÇÕES EXPANDÍVEIS */
 .dia-toggle{width:100%;background:none;border:none;text-align:left;cursor:pointer;padding:0;font-family:var(--sans);display:flex;align-items:center;justify-content:space-between}
 .dia-toggle:active{opacity:.7}
@@ -461,7 +467,14 @@ header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;
 
     <!-- DIA -->
     <div id="pageDia" style="display:none">
-      <div style="font-size:16px;font-weight:700;color:var(--bl);margin-bottom:14px">Resumo do Dia</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-size:16px;font-weight:700;color:var(--bl)" id="diaTitulo">Resumo do Dia</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button onclick="diaNavDate(-1)" style="width:32px;height:32px;background:var(--s2);border:1px solid var(--b2);border-radius:var(--r);color:var(--tx);font-size:16px;cursor:pointer">‹</button>
+          <span id="diaDateLabel" style="font-size:12px;font-family:var(--mono);color:var(--tm);min-width:70px;text-align:center">Hoje</span>
+          <button onclick="diaNavDate(1)" id="diaBtnNext" style="width:32px;height:32px;background:var(--s2);border:1px solid var(--b2);border-radius:var(--r);color:var(--tx);font-size:16px;cursor:pointer">›</button>
+        </div>
+      </div>
       <div class="day-cards" id="dayCards"></div>
       <div class="dia-section-lbl">Por marketplace</div>
       <div id="dayByMkt"></div>
@@ -474,7 +487,19 @@ header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;
 
     <!-- HISTÓRICO -->
     <div id="pageHist" style="display:none">
-      <div style="font-size:16px;font-weight:700;color:var(--bl);margin-bottom:14px">🗂 Histórico de Lotes</div>
+      <div style="font-size:16px;font-weight:700;color:var(--bl);margin-bottom:12px">🗂 Histórico de Lotes</div>
+
+      <!-- BUSCA -->
+      <div style="position:relative;margin-bottom:12px">
+        <input type="text" id="histSearch" placeholder="🔍  Buscar por pedido, NF, tracking, nome..." autocomplete="off"
+          style="width:100%;height:46px;background:var(--s1);border:1.5px solid var(--b2);border-radius:var(--r);color:var(--tx);font-family:var(--sans);font-size:14px;padding:0 40px 0 14px;outline:none;-webkit-appearance:none"
+          oninput="renderHistorico()">
+        <button onclick="document.getElementById('histSearch').value='';renderHistorico()"
+          style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--tm);font-size:18px;cursor:pointer;line-height:1">✕</button>
+      </div>
+
+      <!-- TOTALIZADOR -->
+      <div id="histStats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
 
       <!-- Filtro de data -->
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--tm);margin-bottom:6px">Data</div>
@@ -532,6 +557,7 @@ var camStream = null, barcodeDetector = null, scanning = false, scanPaused = fal
 var lastCode = '', lastCodeAt = 0;
 var encerrandoParcial = false; // flag: encerramento parcial ativo
 var lastPullAt = 0;        // timestamp do último pullFromBling
+var diaSelectedDate = '';  // data selecionada na aba Dia ('' = hoje)
 var histFilterDate = '';   // filtro ativo de data no histórico
 var histFilterMkt  = '';   // filtro ativo de mkt no histórico
 
@@ -959,8 +985,22 @@ function pullFromBling(){
         }
       }
     });
+    // Preserva pacotes de hoje que já foram expedidos (coletado/problema)
+    // Eles não voltam do Bling (estão em DESPACHADO), mas precisam ficar no histórico do dia
+    var jaExpedidos=packages.filter(function(p){
+      return p.date===today && (p.status==='coletado'||p.status==='problema');
+    });
+    // Remove todos os de hoje (pendentes e expedidos)
     packages=packages.filter(function(p){return p.date!==today;});
-    packages=newPkgs.concat(packages);
+    // Adiciona os novos do Bling + recoloca os já expedidos que não vieram no Bling
+    var idsNovos={};
+    newPkgs.forEach(function(p){idsNovos[p.blingId]=true;});
+    var expedidosNaoNosBling=jaExpedidos.filter(function(p){return !idsNovos[p.blingId];});
+    packages=newPkgs.concat(expedidosNaoNosBling).concat(packages);
+    // DEBUG: mostra status do 103803 após merge
+    var debug103803=packages.find(function(p){return String(p.numero)==='103803'||String(p.etiqueta)==='103803';});
+    if(debug103803) console.log('🔍 103803 após merge:',JSON.stringify({status:debug103803.status,urgente:debug103803.urgente,blingStatus:debug103803.blingStatus,date:debug103803.date,mkt:debug103803.mkt}));
+    else console.warn('⚠ 103803 NÃO encontrado no array packages após merge — não veio do Bling');
     sv('expv5_pkgs',packages);
     syncToServer(); // sincroniza packages para outros dispositivos (desktop)
     toast(newPkgs.length+' pedidos carregados','ok');
@@ -1616,22 +1656,94 @@ function diaToggle(id){
   btn.querySelector('.dia-arrow').textContent=open?'▶':'▼';
 }
 
+function getDiaDate(){
+  return diaSelectedDate || todayStr();
+}
+
+function diaNavDate(dir){
+  var cur=getDiaDate();
+  var d=new Date(cur+'T12:00:00');
+  d.setDate(d.getDate()+dir);
+  var newDate=d.toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'});
+  var today=todayStr();
+  // Não avança além de hoje
+  if(newDate>today) return;
+  diaSelectedDate=newDate===today?'':newDate;
+  updateDiaLabel();
+  renderDia();
+}
+
+function updateDiaLabel(){
+  var today=todayStr();
+  var date=getDiaDate();
+  var label;
+  if(date===today) label='Hoje';
+  else{
+    var d=new Date(date+'T12:00:00');
+    var days=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    label=days[d.getDay()]+' '+d.getDate()+'/'+String(d.getMonth()+1).padStart(2,'0');
+  }
+  document.getElementById('diaDateLabel').textContent=label;
+  // Oculta botão ">" quando está em hoje
+  var btnNext=document.getElementById('diaBtnNext');
+  if(btnNext) btnNext.style.opacity=date===today?'0.3':'1';
+}
+
 function renderDia(){
-  var today=todayPkgs();
+  var diaDate=getDiaDate();
+  var today=packages.filter(function(p){return p.date===diaDate;});
+  var isToday=diaDate===todayStr();
   var col=today.filter(function(p){return p.status==='coletado';}).length;
   var prob=today.filter(function(p){return p.status==='problema';}).length;
   var pend=today.length-col-prob;
+  // Atualiza título
+  document.getElementById('diaTitulo').textContent=isToday?'Resumo do Dia':'Histórico — '+diaDate;
+  updateDiaLabel();
   document.getElementById('dayCards').innerHTML=
     '<div class="day-card"><div class="day-lbl">Total</div><div class="day-val">'+today.length+'</div></div>'+
     '<div class="day-card"><div class="day-lbl">Expedidos</div><div class="day-val" style="color:var(--gr)">'+col+'</div></div>'+
     '<div class="day-card"><div class="day-lbl">Pendentes</div><div class="day-val" style="color:var(--am)">'+pend+'</div></div>'+
     '<div class="day-card"><div class="day-lbl">Problemas</div><div class="day-val" style="color:var(--rd)">'+prob+'</div></div>';
 
+  // Separa FLEX dos outros (urgentes do ML ficam no card FLEX)
+  var flexPkgsDia=today.filter(function(p){return p.urgente;});
   var mkts=[];
-  today.forEach(function(p){if(mkts.indexOf(p.mkt)===-1)mkts.push(p.mkt);});
+  today.forEach(function(p){
+    if(p.urgente) return; // FLEX vai em seção própria
+    if(mkts.indexOf(p.mkt)===-1) mkts.push(p.mkt);
+  });
 
-  document.getElementById('dayByMkt').innerHTML=mkts.map(function(m){
-    var mp=today.filter(function(p){return p.mkt===m;});
+  var diaHtml='';
+
+  // Card FLEX separado (se tiver)
+  if(flexPkgsDia.length>0){
+    var fCol=flexPkgsDia.filter(function(p){return p.status==='coletado';});
+    var fPend=flexPkgsDia.filter(function(p){return p.status==='pendente';});
+    var fProb=flexPkgsDia.filter(function(p){return p.status==='problema';});
+    var fPct=flexPkgsDia.length?Math.round(fCol.length/flexPkgsDia.length*100):0;
+    var fUid='dia_mkt_flex';
+    diaHtml+='<div class="dia-section-box" style="border-color:var(--rd3)">';
+    diaHtml+='<button class="dia-toggle" id="btn_'+fUid+'" data-uid="'+fUid+'" onclick="diaToggle(this.dataset.uid)">';
+    diaHtml+='<div style="display:flex;align-items:center;gap:8px">';
+    diaHtml+='<span class="mkt-chip c-rd">⚡ FLEX</span>';
+    diaHtml+='<span style="font-family:var(--mono);font-size:11px;color:var(--tm)">'+
+      '<span style="color:var(--gr)">'+fCol.length+' exp.</span> · '+
+      '<span style="color:var(--am)">'+fPend.length+' pend.</span>'+
+      (fProb.length>0?' · <span style="color:var(--rd)">'+fProb.length+' prob.</span>':'')+
+    '</span></div>';
+    diaHtml+='<span style="color:var(--tm);font-size:12px"><span class="dia-arrow">▶</span> '+fPct+'%</span>';
+    diaHtml+='</button>';
+    diaHtml+='<div class="prog-bar-wrap" style="margin:8px 0 0"><div class="prog-bar" style="width:'+fPct+'%;background:var(--rd)"></div></div>';
+    diaHtml+='<div id="'+fUid+'" style="display:none;margin-top:10px">';
+    if(fCol.length>0){diaHtml+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gr);margin-bottom:4px">✓ Expedidos ('+fCol.length+')</div>';diaHtml+=fCol.map(diaPkgRow).join('');}
+    if(fPend.length>0){diaHtml+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--am);margin:'+(fCol.length>0?'10':'0')+'px 0 4px">⏳ Pendentes ('+fPend.length+')</div>';diaHtml+=fPend.map(diaPkgRow).join('');}
+    if(fProb.length>0){diaHtml+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--rd);margin:10px 0 4px">🚫 Problemas ('+fProb.length+')</div>';diaHtml+=fProb.map(diaPkgRow).join('');}
+    diaHtml+='</div></div>';
+  }
+
+  document.getElementById('dayByMkt').innerHTML=diaHtml+mkts.map(function(m){
+    var mp=today.filter(function(p){return p.mkt===m&&!p.urgente;});
+    if(mp.length===0) return '';
     var mc=mp.filter(function(p){return p.status==='coletado';});
     var mpb=mp.filter(function(p){return p.status==='problema';});
     var mpp=mp.filter(function(p){return p.status==='pendente';});
@@ -1673,7 +1785,7 @@ function renderDia(){
     return html;
   }).join('');
   // Lotes
-  var lotes=scans.filter(function(s){return s.tipo==='lote'&&s.date===todayStr();});
+  var lotes=scans.filter(function(s){return s.tipo==='lote'&&s.date===diaDate;});
   if(lotes.length>0){
     var html='<div class="dia-section-lbl">Lotes fechados hoje</div>';
     lotes.forEach(function(l){
@@ -1706,20 +1818,27 @@ function verFotoLote(loteId,idx){
 }
 
 // ═══ HISTÓRICO ═══
+function highlight(text, q){
+  if(!q||!text) return String(text||'');
+  var re=new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+  return String(text).replace(re,'<span class="hist-highlight">$1</span>');
+}
+
 function renderHistorico(){
   var today=todayStr();
-  // Coleta datas únicas dos lotes (max 14 dias)
+  // Coleta todas as datas com scans OU pacotes
   var datas=[];
-  scans.forEach(function(s){
-    if(s.tipo==='lote'&&s.date&&datas.indexOf(s.date)===-1) datas.push(s.date);
-  });
+  scans.forEach(function(s){if(s.date&&datas.indexOf(s.date)===-1) datas.push(s.date);});
+  packages.forEach(function(p){if(p.date&&(p.status==='coletado'||p.status==='problema')&&datas.indexOf(p.date)===-1) datas.push(p.date);});
   datas.sort(function(a,b){return b>a?1:b<a?-1:0;});
   if(datas.indexOf(today)===-1) datas.unshift(today);
-  datas=datas.slice(0,14);
+  datas=datas.slice(0,30); // últimos 30 dias com registros
 
-  // Chips de data
+  // Chips de data — "Hoje", "Ontem", depois datas
+  var ontem=new Date(); ontem.setDate(ontem.getDate()-1);
+  var ontemStr=ontem.toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'});
   document.getElementById('filterDateRow').innerHTML=datas.map(function(d){
-    var label=d===today?'Hoje':d;
+    var label=d===today?'Hoje':d===ontemStr?'Ontem':d.slice(5); // MM-DD
     var on=histFilterDate===d||(!histFilterDate&&d===today);
     if(on&&!histFilterDate) histFilterDate=today;
     return '<button class="filter-chip'+(on?' on':'')+'" data-d="'+d+'" onclick="setHistDate(this.dataset.d)">'+label+'</button>';
@@ -1753,6 +1872,9 @@ function setHistMkt(m){
 
 function renderHistContent(){
   var date=histFilterDate||todayStr();
+  var q=(document.getElementById('histSearch')||{}).value;
+  q=q?q.trim().toUpperCase():'';
+
   // Lotes do dia filtrado
   var lotes=scans.filter(function(s){
     return s.tipo==='lote'&&s.date===date&&(!histFilterMkt||s.mkt===histFilterMkt);
@@ -1762,27 +1884,55 @@ function renderHistContent(){
     return s.tipo!=='lote'&&s.date===date&&(!histFilterMkt||s.mkt===histFilterMkt);
   });
 
+  // Filtro de busca textual
+  if(q){
+    pkgScans=pkgScans.filter(function(s){
+      var pkg=null;
+      for(var k=0;k<packages.length;k++){if(packages[k].etiqueta===s.etiqueta){pkg=packages[k];break;}}
+      var campos=[s.numero,s.etiqueta,s.destinatario,pkg&&pkg.nf,pkg&&pkg.numLoja,pkg&&pkg.numeracao].join(' ').toUpperCase();
+      return campos.indexOf(q)!==-1;
+    });
+  }
+
+  // ── TOTALIZADOR ──────────────────────────────────────────────────────────
+  var totalExp=pkgScans.length;
+  var totalLotes=lotes.length;
+  // Conta por marketplace
+  var mktCount={};
+  pkgScans.forEach(function(s){
+    var m=s.mkt||(s.urgente?'flex':'outro');
+    mktCount[m]=(mktCount[m]||0)+1;
+  });
+  var statsHtml='';
+  if(totalLotes>0||totalExp>0){
+    statsHtml+='<div class="hist-stat-card"><div class="hist-stat-val" style="color:var(--gr)">'+totalExp+'</div><div class="hist-stat-lbl">Bipados</div></div>';
+    statsHtml+='<div class="hist-stat-card"><div class="hist-stat-val" style="color:var(--bl)">'+totalLotes+'</div><div class="hist-stat-lbl">Lotes</div></div>';
+    Object.keys(mktCount).forEach(function(m){
+      var info=MKT[m]||{icon:'📦',n:m};
+      statsHtml+='<div class="hist-stat-card"><div class="hist-stat-val">'+mktCount[m]+'</div><div class="hist-stat-lbl">'+info.icon+' '+info.n+'</div></div>';
+    });
+  }
+  document.getElementById('histStats').innerHTML=statsHtml;
+
   var html='';
 
   if(lotes.length===0&&pkgScans.length===0){
-    html='<div class="hist-empty">Nenhum registro para este filtro</div>';
+    html='<div class="hist-empty">'+(q?'Nenhum resultado para "'+q+'"':'Nenhum registro para este filtro')+'</div>';
     document.getElementById('histContent').innerHTML=html;
     return;
   }
 
-  // Lotes com fotos
-  if(lotes.length>0){
-    html+='<div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--tm);margin-bottom:8px">Lotes ('+lotes.length+')</div>';
+  // Lotes com fotos do veículo
+  if(lotes.length>0&&!q){
+    html+='<div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--tm);margin-bottom:8px">Lotes fechados ('+lotes.length+')</div>';
     lotes.forEach(function(l){
       var info=MKT[l.mkt]||{icon:'📦',n:l.mkt};
       html+='<div class="hist-lote">';
-      html+='<div class="hist-lote-head">';
-      html+='<span style="font-size:13px;font-weight:700">'+info.icon+' '+info.n+'</span>';
-      html+='<span style="font-size:11px;color:var(--tm)">'+l.time+'</span>';
-      html+='</div>';
+      html+='<div class="hist-lote-head"><span style="font-size:13px;font-weight:700">'+info.icon+' '+info.n+'</span><span style="font-size:11px;color:var(--tm)">'+l.time+'</span></div>';
       html+='<div style="font-size:11px;font-family:var(--mono);color:var(--tm)">✓ '+l.qtd+' entregues'+(l.problemas>0?' · 🚫 '+l.problemas+' prob.':'')+'</div>';
       if(l.obs) html+='<div style="font-size:11px;color:var(--am);background:var(--am2);border-radius:6px;padding:5px 8px;margin-top:6px">📝 '+l.obs+'</div>';
       if(l.fotosVeiculo&&l.fotosVeiculo.length>0){
+        html+='<div style="font-size:10px;color:var(--tm);margin:6px 0 4px">📸 Fotos do veículo:</div>';
         html+='<div class="hist-lote-fotos">';
         l.fotosVeiculo.forEach(function(f,idx){
           html+='<img src="'+f+'" data-id="'+l.id+'" data-idx="'+idx+'" onclick="verFotoLote(this.dataset.id,this.dataset.idx)" alt="foto veículo">';
@@ -1793,17 +1943,17 @@ function renderHistContent(){
     });
   }
 
-  // Pacotes bipados individualmente
+  // Pacotes bipados
   if(pkgScans.length>0){
     html+='<div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--tm);margin:12px 0 8px">Pacotes bipados ('+pkgScans.length+')</div>';
     html+='<div style="background:var(--s1);border:1px solid var(--b1);border-radius:var(--rl);padding:10px 14px">';
     pkgScans.forEach(function(s){
       var mktInfo=MKT[s.mkt]||{icon:'📦'};
-      // Busca pacote para pegar NF e numLoja
       var pkg=null;
       for(var k=0;k<packages.length;k++){if(packages[k].etiqueta===s.etiqueta){pkg=packages[k];break;}}
       var nf=pkg&&pkg.nf?pkg.nf:'';
       var numLoja=pkg&&pkg.numLoja?pkg.numLoja:'';
+      var track=pkg&&pkg.numeracao?pkg.numeracao:'';
       var diaLabel=s.date===todayStr()?'Hoje':s.date;
       html+='<div class="hist-pkg">';
       if(s.photo){
@@ -1812,10 +1962,10 @@ function renderHistContent(){
         html+='<div style="width:44px;height:44px;border-radius:6px;background:var(--s2);border:1px dashed var(--b2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📷</div>';
       }
       html+='<div class="hist-pkg-info">';
-      // Ordem: NF | #Bling | #Marketplace | destinatário | data/hora
-      if(nf) html+='<div style="font-size:12px;font-weight:700;color:var(--gr);font-family:var(--mono)">NF '+nf+'</div>';
-      html+='<div class="hist-pkg-num">'+mktInfo.icon+' '+s.numero+(numLoja?' <span style="color:var(--bl)">· 🛒'+numLoja+'</span>':'')+'</div>';
-      html+='<div class="hist-pkg-dest">'+s.destinatario+'</div>';
+      if(nf) html+='<div style="font-size:12px;font-weight:700;color:var(--gr);font-family:var(--mono)">'+highlight('NF '+nf,q)+'</div>';
+      html+='<div class="hist-pkg-num">'+mktInfo.icon+' '+highlight(s.numero,q)+(numLoja?' <span style="color:var(--bl)">🛒'+highlight(numLoja,q)+'</span>':'')+'</div>';
+      html+='<div class="hist-pkg-dest">'+highlight(s.destinatario,q)+'</div>';
+      if(track) html+='<div style="font-size:10px;font-family:var(--mono);color:var(--tm)">📦 '+highlight(track,q)+'</div>';
       html+='<div style="font-size:10px;font-family:var(--mono);color:var(--th);margin-top:2px">📅 '+diaLabel+' às '+s.time+'</div>';
       html+='</div>';
       html+='</div>';
@@ -1869,7 +2019,10 @@ function showPage(page){
   document.getElementById('navRom').className='nav-btn'+(page==='romaneio'?' active':'');
   document.getElementById('navDia').className='nav-btn'+(page==='dia'?' active':'');
   document.getElementById('navHist').className='nav-btn'+(page==='historico'?' active':'');
-  if(page==='dia') renderDia();
+  if(page==='dia'){
+    if(!diaSelectedDate) updateDiaLabel();
+    renderDia();
+  }
   if(page==='historico'){
     // Busca dados atualizados do servidor antes de renderizar
     loadFromServer(function(){renderHistorico();});
@@ -1897,14 +2050,15 @@ function toast(msg,type){
   a.appendChild(t); setTimeout(function(){t.remove();},2800);
 }
 function exportCSV(){
+  var diaDate=getDiaDate();
   var rows=[['Número','Marketplace','Destinatário','Serviço','Rastreio','Separado','Coletado','Status','Obs']];
-  todayPkgs().forEach(function(p){
+  packages.filter(function(p){return p.date===diaDate;}).forEach(function(p){
     rows.push([p.numero,(MKT[p.mkt]||{n:p.mkt}).n,p.destinatario,p.servico,p.numeracao||'',p.pulledAt,p.colT||'',p.status,p.obs||'']);
   });
   var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c||'').replace(/"/g,'""')+'"';}).join(',');}).join('\n');
   var a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
-  a.download='expedicao_'+todayStr()+'.csv'; a.click();
+  a.download='expedicao_'+getDiaDate()+'.csv'; a.click();
 }
 function clearDay(){
   if(!confirm('Limpar registros de hoje?')) return;
