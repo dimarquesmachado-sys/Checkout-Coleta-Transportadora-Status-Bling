@@ -398,6 +398,20 @@ const SUPABASE_URL = process.env.SUPABASE_URL || 'https://wexikjzztxpfdbzjfnxl.s
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndleGlranp6dHhwZmRiempmbnhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwOTg2MjMsImV4cCI6MjA5MDY3NDYyM30.s-Vu3pJETbVw9VbmqhtFhKiDgnPocubFgkHPVeQyMus';
 const SUPABASE_BUCKET = 'expedicao';
 
+// Testa conexão com Supabase no startup
+async function testSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) { console.log('⚠ Supabase não configurado'); return; }
+  try {
+    const r = await fetch(`${SUPABASE_URL}/storage/v1/bucket/${SUPABASE_BUCKET}`, {
+      headers: { 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    const d = await r.json();
+    if (r.ok) console.log('✅ Supabase bucket OK:', d.name, 'public:', d.public);
+    else console.error('❌ Supabase bucket erro:', JSON.stringify(d));
+  } catch(e) { console.error('❌ Supabase conexão falhou:', e.message); }
+}
+setTimeout(testSupabase, 3000);
+
 // Fallback em memória enquanto Supabase não estiver configurado
 const photoStore = new Map();
 const MAX_PHOTOS = 500;
@@ -428,8 +442,7 @@ async function supabaseUpload(fileName, base64Data) {
     });
     if (!r.ok) {
       const err = await r.text();
-      console.error('Supabase upload erro:', err);
-      // Fallback para memória
+      console.error(`❌ Supabase upload FALHOU [${r.status}] ${fileName}:`, err.substring(0,300));
       photoStore.set(fileName, base64Data);
       return { ok: false };
     }
