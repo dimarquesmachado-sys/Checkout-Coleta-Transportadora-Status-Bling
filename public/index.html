@@ -1362,6 +1362,8 @@ function getPkgsAtivos(){
 function renderPkgList(){
   if(!activeMkt) return;
   var pkgs=getPkgsAtivos();
+  // Ordem crescente por número do pedido
+  pkgs.sort(function(a,b){return parseInt(a.numero)-parseInt(b.numero);});
   var today=todayStr();
   document.getElementById('pkgList').innerHTML=pkgs.map(function(p){
     var sc=colSession.indexOf(p.etiqueta)!==-1;
@@ -2123,6 +2125,26 @@ function renderDia(){
     document.getElementById('dayLotes').innerHTML='';
   }
 }
+function toggleHistLote(id,header){
+  var el=document.getElementById(id);
+  if(!el) return;
+  var arrow=header.querySelector('.lote-arrow');
+  if(el.style.display==='none'){
+    el.style.display='block';
+    if(arrow) arrow.style.transform='rotate(180deg)';
+  } else {
+    el.style.display='none';
+    if(arrow) arrow.style.transform='';
+  }
+}
+
+function toggleLotePkgs(loteId, headerEl){
+  var el=document.getElementById('lote-pkgs-'+loteId);
+  if(!el) return;
+  var visible=el.style.display!=='none';
+  el.style.display=visible?'none':'block';
+}
+
 function verFotoLote(loteId,idx){
   idx=parseInt(idx)||0;
   var lote=null;
@@ -2458,63 +2480,125 @@ function renderHistContent(){
     return;
   }
 
-  // Lotes com fotos do veículo
-  if(lotes.length>0&&!q){
-    html+='<div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--tm);margin-bottom:8px">Lotes fechados ('+lotes.length+')</div>';
-    lotes.forEach(function(l){
-      var info=MKT[l.mkt]||{icon:'📦',n:l.mkt};
-      html+='<div class="hist-lote">';
-      html+='<div class="hist-lote-head"><span style="font-size:13px;font-weight:700">'+info.icon+' '+info.n+'</span><span style="font-size:11px;color:var(--tm)">'+l.time+'</span></div>';
-      html+='<div style="font-size:11px;font-family:var(--mono);color:var(--tm)">✓ '+l.qtd+' entregues'+(l.problemas>0?' · 🚫 '+l.problemas+' prob.':'')+'</div>';
-      if(l.obs) html+='<div style="font-size:11px;color:var(--am);background:var(--am2);border-radius:6px;padding:5px 8px;margin-top:6px">📝 '+l.obs+'</div>';
-      // Tenta mostrar fotos locais; se não tiver, mostra botões para buscar do servidor
-      html+='<div style="font-size:10px;color:var(--tm);margin:6px 0 4px">📸 Fotos do veículo:</div>';
-      html+='<div class="hist-lote-fotos">';
-      var nFotos=(l.fotosVeiculo&&l.fotosVeiculo.length)||0;
-      var totalFotos=nFotos>0?nFotos:(l.qtd>0?3:0); // estima 3 se tinha lote
-      if(nFotos>0){
-        l.fotosVeiculo.forEach(function(f,idx){
-          html+='<img src="'+f+'" data-id="'+l.id+'" data-idx="'+idx+'" onclick="verFotoLote(this.dataset.id,this.dataset.idx)" alt="foto veículo" style="width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;border:2px solid var(--b2)">';
-        });
-      } else if(l.qtd>0) {
-        // Lote tem fotos no servidor — mostra botões para cada foto
-        for(var fi=0;fi<3;fi++){
-          html+='<div style="width:80px;height:80px;border-radius:8px;background:var(--s2);border:1px dashed var(--b2);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:12px;color:var(--tm);gap:4px" data-id="'+l.id+'" data-idx="'+fi+'" onclick="verFotoLote(this.dataset.id,this.dataset.idx)">🚛<span>Foto '+(fi+1)+'</span></div>';
-        }
-      }
-      html+='</div>';
-      html+='</div>';
+  // ── Associa cada scan ao seu lote por mkt + ordem temporal ───────────────
+  function getScansDaLote(lote, todosPkgScans, lotesOrdenados){
+    // Primeiro tenta por loteId
+    var porId=todosPkgScans.filter(function(s){return s.loteId===lote.id;});
+    if(porId.length>0) return porId;
+    // Fallback: usa janela de tempo — scans do mesmo mkt entre lote anterior e este lote
+    var idxLote=lotesOrdenados.indexOf(lote);
+    var lotePrev=lotesOrdenados[idxLote+1]; // lotes estão do mais recente pro mais antigo
+    var tsLote=lote.time||'99:99';
+    var tsPrev=lotePrev?lotePrev.time:'00:00';
+    return todosPkgScans.filter(function(s){
+      if(s.mkt!==lote.mkt&&!(lote.mkt==='flex'&&s.urgente)) return false;
+      var ts=s.time||'';
+      return ts<=tsLote&&ts>tsPrev;
     });
   }
 
-  // Pacotes bipados
-  if(pkgScans.length>0){
-    html+='<div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--tm);margin:12px 0 8px">Pacotes bipados ('+pkgScans.length+')</div>';
+  // Busca com scan individual mostra pacotes + lote referente
+  if(q){
+    html+='<div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--tm);margin-bottom:8px">Resultados ('+pkgScans.length+')</div>';
     html+='<div style="background:var(--s1);border:1px solid var(--b1);border-radius:var(--rl);padding:10px 14px">';
     pkgScans.forEach(function(s){
       var mktInfo=MKT[s.mkt]||{icon:'📦'};
-      var pkg=null;
-      for(var k=0;k<packages.length;k++){if(packages[k].etiqueta===s.etiqueta){pkg=packages[k];break;}}
-      var nf=pkg&&pkg.nf?pkg.nf:'';
-      var numLoja=pkg&&pkg.numLoja?pkg.numLoja:'';
-      var track=pkg&&pkg.numeracao?pkg.numeracao:'';
-      var diaLabel=formatDate(s.date);
+      var pkg=null; for(var k=0;k<packages.length;k++){if(packages[k].etiqueta===s.etiqueta){pkg=packages[k];break;}}
+      var nf=pkg&&pkg.nf?pkg.nf:''; var numLoja=pkg&&pkg.numLoja?pkg.numLoja:''; var track=pkg&&pkg.numeracao?pkg.numeracao:'';
+      var supaBase='https://wexikjzztxpfdbzjfnxl.supabase.co/storage/v1/object/public/expedicao/';
+      var photoSrc=s.photo||(s.photoUrl?s.photoUrl:(supaBase+'scan_'+s.etiqueta+'_'+s.date));
       html+='<div class="hist-pkg">';
-      if(s.photo){
-        html+='<img src="'+s.photo+'" data-et="'+s.etiqueta+'" onclick="verFotoScan(this.dataset.et)" alt="etiqueta">';
-      } else {
-        html+='<div style="width:44px;height:44px;border-radius:6px;background:var(--s2);border:1px dashed var(--b2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;cursor:pointer" data-et="'+s.etiqueta+'" onclick="verFotoScan(this.dataset.et)" title="Ver no celular da expedição">📷</div>';
-      }
+      html+='<img src="'+photoSrc+'" data-et="'+s.etiqueta+'" onclick="verFotoScan(this.dataset.et)" onerror="this.style.opacity=.2" alt="etiqueta" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0;cursor:pointer;border:1px solid var(--b2)">';
       html+='<div class="hist-pkg-info">';
       if(nf) html+='<div style="font-size:12px;font-weight:700;color:var(--gr);font-family:var(--mono)">'+highlight('NF '+nf,q)+'</div>';
-      html+='<div class="hist-pkg-num">'+mktInfo.icon+' '+highlight(s.numero,q)+(numLoja?' <span style="color:var(--bl)">🛒'+highlight(numLoja,q)+'</span>':'')+'</div>';
+      html+='<div class="hist-pkg-num">'+mktInfo.icon+' '+highlight(s.numero,q)+'</div>';
       html+='<div class="hist-pkg-dest">'+highlight(s.destinatario,q)+'</div>';
       if(track) html+='<div style="font-size:10px;font-family:var(--mono);color:var(--tm)">📦 '+highlight(track,q)+'</div>';
-      html+='<div style="font-size:10px;font-family:var(--mono);color:var(--th);margin-top:2px">📅 '+diaLabel+' às '+s.time+'</div>';
-      html+='</div>';
-      html+='</div>';
+      html+='<div style="font-size:10px;color:var(--th);margin-top:2px">'+s.time+'</div>';
+      html+='</div></div>';
     });
     html+='</div>';
+  } else {
+    // ── LOTES como cards colapsáveis ─────────────────────────────────────
+    if(lotes.length>0){
+      lotes.forEach(function(l){
+        var info=MKT[l.mkt]||{icon:'📦',n:l.mkt};
+        var supaBase='https://wexikjzztxpfdbzjfnxl.supabase.co/storage/v1/object/public/expedicao/';
+        var nFotos=(l.fotosVeiculo&&l.fotosVeiculo.length)||0;
+        var lotePkgs=getScansDaLote(l,pkgScans,lotes);
+        // Card do lote — clica para expandir
+        html+='<div style="background:var(--s1);border:1.5px solid var(--b1);border-radius:var(--rl);margin-bottom:10px;overflow:hidden">';
+        // Cabeçalho clicável
+        html+='<div onclick="toggleHistLote(\'lh_'+l.id+'\',this)" style="padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">';
+        html+='<div style="display:flex;align-items:center;gap:10px">';
+        html+='<span style="font-size:22px">'+info.icon+'</span>';
+        html+='<div>';
+        html+='<div style="font-size:14px;font-weight:700">'+info.n+'</div>';
+        html+='<div style="font-size:11px;color:var(--tm);font-family:var(--mono)">'+l.time+' · '+l.qtd+' entregues'+(l.problemas>0?' · 🚫 '+l.problemas+' prob.':'')+'</div>';
+        html+='</div></div>';
+        html+='<div style="display:flex;align-items:center;gap:8px">';
+        html+='<span style="font-size:12px;color:var(--bl);font-family:var(--mono)">'+lotePkgs.length+' pkgs</span>';
+        html+='<span class="lote-arrow" style="font-size:14px;color:var(--tm);transition:.2s">▼</span>';
+        html+='</div></div>';
+        // Corpo colapsável
+        html+='<div id="lh_'+l.id+'" style="display:none;border-top:1px solid var(--b1);padding:12px 14px">';
+        // Obs
+        if(l.obs) html+='<div style="font-size:11px;color:var(--am);background:var(--am2);border-radius:6px;padding:6px 10px;margin-bottom:10px">📝 '+l.obs+'</div>';
+        // Fotos do veículo
+        html+='<div style="font-size:11px;color:var(--tm);font-family:var(--mono);margin-bottom:6px">📸 FOTOS DO VEÍCULO</div>';
+        html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
+        if(nFotos>0){
+          l.fotosVeiculo.forEach(function(f,idx){
+            html+='<img src="'+f+'" data-id="'+l.id+'" data-idx="'+idx+'" onclick="verFotoLote(this.dataset.id,this.dataset.idx)" style="width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;border:2px solid var(--b2)">';
+          });
+        } else {
+          for(var fi=0;fi<3;fi++){
+            html+='<img src="'+supaBase+'lote_'+l.id+'_'+fi+'" data-id="'+l.id+'" data-idx="'+fi+'" onclick="verFotoLote(this.dataset.id,this.dataset.idx)" onerror="this.outerHTML=\'<div style=&quot;width:80px;height:80px;border-radius:8px;background:var(--s2);border:1px dashed var(--b2);display:flex;align-items:center;justify-content:center;font-size:20px&quot;>🚛</div>\'" style="width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;border:2px solid var(--b2)">';
+          }
+        }
+        html+='</div>';
+        // Pacotes do lote
+        if(lotePkgs.length>0){
+          html+='<div style="font-size:11px;color:var(--tm);font-family:var(--mono);margin-bottom:6px">📦 PACOTES DESTE LOTE ('+lotePkgs.length+')</div>';
+          lotePkgs.forEach(function(s){
+            var pkg=null; for(var k=0;k<packages.length;k++){if(packages[k].etiqueta===s.etiqueta){pkg=packages[k];break;}}
+            var nf=pkg&&pkg.nf?pkg.nf:''; var track=pkg&&pkg.numeracao?pkg.numeracao:'';
+            var photoSrc=s.photo||(s.photoUrl?s.photoUrl:(supaBase+'scan_'+s.etiqueta+'_'+s.date));
+            html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--b1)">';
+            html+='<img src="'+photoSrc+'" data-et="'+s.etiqueta+'" onclick="verFotoScan(this.dataset.et)" onerror="this.style.opacity=.2" style="width:48px;height:48px;object-fit:cover;border-radius:6px;flex-shrink:0;cursor:pointer;border:1px solid var(--b2)">';
+            html+='<div style="flex:1;min-width:0">';
+            if(nf) html+='<div style="font-size:11px;font-weight:700;color:var(--gr);font-family:var(--mono)">NF '+nf+'</div>';
+            html+='<div style="font-size:13px;font-weight:700">'+s.numero+'</div>';
+            html+='<div style="font-size:11px;color:var(--tm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+s.destinatario+'</div>';
+            if(track) html+='<div style="font-size:10px;font-family:var(--mono);color:var(--bl)">📦 '+track+'</div>';
+            html+='</div></div>';
+          });
+        } else {
+          html+='<div style="font-size:11px;color:var(--tm);font-style:italic">Nenhum pacote registrado neste lote</div>';
+        }
+        html+='</div></div>';
+      });
+    } else if(pkgScans.length>0){
+      // Sem lotes — mostra scans avulsos
+      html+='<div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--tm);margin-bottom:8px">Bipados sem lote ('+pkgScans.length+')</div>';
+      html+='<div style="background:var(--s1);border:1px solid var(--b1);border-radius:var(--rl);padding:10px 14px">';
+      pkgScans.forEach(function(s){
+        var mktInfo=MKT[s.mkt]||{icon:'📦'};
+        var pkg=null; for(var k=0;k<packages.length;k++){if(packages[k].etiqueta===s.etiqueta){pkg=packages[k];break;}}
+        var nf=pkg&&pkg.nf?'NF '+pkg.nf:''; var track=pkg&&pkg.numeracao?pkg.numeracao:'';
+        var supaBase='https://wexikjzztxpfdbzjfnxl.supabase.co/storage/v1/object/public/expedicao/';
+        var photoSrc=s.photo||(s.photoUrl?s.photoUrl:(supaBase+'scan_'+s.etiqueta+'_'+s.date));
+        html+='<div class="hist-pkg">';
+        html+='<img src="'+photoSrc+'" data-et="'+s.etiqueta+'" onclick="verFotoScan(this.dataset.et)" onerror="this.style.opacity=.2" alt="etiqueta" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0;cursor:pointer;border:1px solid var(--b2)">';
+        html+='<div class="hist-pkg-info">';
+        if(nf) html+='<div style="font-size:12px;font-weight:700;color:var(--gr);font-family:var(--mono)">'+nf+'</div>';
+        html+='<div class="hist-pkg-num">'+mktInfo.icon+' '+s.numero+'</div>';
+        html+='<div class="hist-pkg-dest">'+s.destinatario+'</div>';
+        if(track) html+='<div style="font-size:10px;font-family:var(--mono);color:var(--tm)">📦 '+track+'</div>';
+        html+='</div></div>';
+      });
+      html+='</div>';
+    }
   }
 
   document.getElementById('histContent').innerHTML=html;
