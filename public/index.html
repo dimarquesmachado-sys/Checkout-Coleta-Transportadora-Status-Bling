@@ -1987,10 +1987,47 @@ function renderDia(){
   }
 }
 function verFotoLote(loteId,idx){
+  idx=parseInt(idx)||0;
   var lote=null;
   for(var i=0;i<scans.length;i++){if(scans[i].id===loteId){lote=scans[i];break;}}
-  if(!lote||!lote.fotosVeiculo||!lote.fotosVeiculo[idx]) return;
-  openModal('<div class="modal-img-wrap"><img src="'+lote.fotosVeiculo[idx]+'" alt="foto lote" style="max-width:100%;max-height:82vh;border-radius:8px;display:block"><button class="modal-close" onclick="closeTopModal()">✕</button></div><button class="modal-back" onclick="closeTopModal()">← Voltar</button>');
+
+  // Tenta foto local primeiro
+  var localFoto=lote&&lote.fotosVeiculo&&lote.fotosVeiculo[idx];
+  if(localFoto){
+    _showLotePhotoModal(localFoto);
+    return;
+  }
+
+  // Busca no servidor (Supabase)
+  apiFetch('/photos/lote/'+encodeURIComponent(loteId)+'/'+idx)
+  .then(function(r){return r.ok?r.json():null;})
+  .then(function(d){
+    if(d&&(d.url||d.photo)){
+      _showLotePhotoModal(d.url||d.photo);
+    } else {
+      openModal('<div class="modal-img-wrap" style="text-align:center;padding:24px 20px">'+
+        '<div style="font-size:52px;margin-bottom:14px">🚛</div>'+
+        '<div style="color:var(--tx);font-size:15px;font-weight:700;margin-bottom:8px">Foto do veículo</div>'+
+        '<div style="color:var(--tm);font-size:12px;line-height:1.8">'+
+          'Esta foto ainda não foi sincronizada.<br>'+
+          'Acesse pelo celular da expedição<br>para ver as fotos do veículo.'+
+        '</div>'+
+        '<button class="modal-close" onclick="closeTopModal()">✕</button>'+
+        '</div>'+
+        '<button class="modal-back" onclick="closeTopModal()">← Fechar</button>');
+    }
+  })
+  .catch(function(){
+    openModal('<div class="modal-img-wrap" style="text-align:center;padding:24px"><div style="font-size:52px">🚛</div><div style="color:var(--tm);font-size:13px;margin-top:12px">Erro ao carregar foto</div><button class="modal-close" onclick="closeTopModal()">✕</button></div><button class="modal-back" onclick="closeTopModal()">← Fechar</button>');
+  });
+}
+
+function _showLotePhotoModal(src){
+  openModal('<div class="modal-img-wrap">'+
+    '<img src="'+src+'" alt="foto veículo" style="max-width:100%;max-height:82vh;border-radius:8px;display:block">'+
+    '<button class="modal-close" onclick="closeTopModal()">✕</button>'+
+    '</div>'+
+    '<button class="modal-back" onclick="closeTopModal()">← Voltar</button>');
 }
 
 // ═══ HISTÓRICO ═══
@@ -2245,14 +2282,22 @@ function renderHistContent(){
       html+='<div class="hist-lote-head"><span style="font-size:13px;font-weight:700">'+info.icon+' '+info.n+'</span><span style="font-size:11px;color:var(--tm)">'+l.time+'</span></div>';
       html+='<div style="font-size:11px;font-family:var(--mono);color:var(--tm)">✓ '+l.qtd+' entregues'+(l.problemas>0?' · 🚫 '+l.problemas+' prob.':'')+'</div>';
       if(l.obs) html+='<div style="font-size:11px;color:var(--am);background:var(--am2);border-radius:6px;padding:5px 8px;margin-top:6px">📝 '+l.obs+'</div>';
-      if(l.fotosVeiculo&&l.fotosVeiculo.length>0){
-        html+='<div style="font-size:10px;color:var(--tm);margin:6px 0 4px">📸 Fotos do veículo:</div>';
-        html+='<div class="hist-lote-fotos">';
+      // Tenta mostrar fotos locais; se não tiver, mostra botões para buscar do servidor
+      html+='<div style="font-size:10px;color:var(--tm);margin:6px 0 4px">📸 Fotos do veículo:</div>';
+      html+='<div class="hist-lote-fotos">';
+      var nFotos=(l.fotosVeiculo&&l.fotosVeiculo.length)||0;
+      var totalFotos=nFotos>0?nFotos:(l.qtd>0?3:0); // estima 3 se tinha lote
+      if(nFotos>0){
         l.fotosVeiculo.forEach(function(f,idx){
           html+='<img src="'+f+'" data-id="'+l.id+'" data-idx="'+idx+'" onclick="verFotoLote(this.dataset.id,this.dataset.idx)" alt="foto veículo">';
         });
-        html+='</div>';
+      } else if(l.qtd>0) {
+        // Lote tem fotos no servidor — mostra botões para cada foto
+        for(var fi=0;fi<3;fi++){
+          html+='<div style="width:72px;height:72px;border-radius:8px;background:var(--s2);border:1px dashed var(--b2);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:10px;color:var(--tm);gap:4px" data-id="'+l.id+'" data-idx="'+fi+'" onclick="verFotoLote(this.dataset.id,this.dataset.idx)">🚛<span>Foto '+(fi+1)+'</span></div>';
+        }
       }
+      html+='</div>';
       html+='</div>';
     });
   }
