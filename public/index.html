@@ -1163,7 +1163,7 @@ function pullFromBling(){
     // (evita rate limit 429 do Bling ao rodar os dois em paralelo)
     var semTracking=newPkgs.filter(function(p){
       // Inclui ML sem numLoja para buscar número loja virtual (2000015489054448)
-      if(p.mkt==='ml'&&!p.urgente&&!p.numLoja) return true;
+      if(p.mkt==='ml'&&!p.urgente&&(!p.numLoja||!p.numeracao)) return true;
       return !p.numeracao && (p.mkt==='tiktok'||p.mkt==='shopee'||p.mkt==='magalu'||p.mkt==='amazon');
     });
     var semTracking_count=semTracking.length;
@@ -2041,24 +2041,34 @@ function verFotoLote(loteId,idx){
   apiFetch('/photos/lote/'+encodeURIComponent(loteId)+'/'+idx)
   .then(function(r){return r.ok?r.json():null;})
   .then(function(d){
-    if(d&&(d.url||d.photo)){
-      _showLotePhotoModal(d.url||d.photo);
+    if(d&&d.url&&d.url.startsWith('http')){
+      // Testa se a URL realmente existe no Supabase antes de abrir
+      var img=new Image();
+      img.onload=function(){_showLotePhotoModal(d.url);};
+      img.onerror=function(){_showLoteMsgNaoDisp();};
+      img.src=d.url;
+    } else if(d&&d.photo){
+      _showLotePhotoModal(d.photo);
     } else {
-      openModal('<div class="modal-img-wrap" style="text-align:center;padding:24px 20px">'+
-        '<div style="font-size:52px;margin-bottom:14px">🚛</div>'+
-        '<div style="color:var(--tx);font-size:15px;font-weight:700;margin-bottom:8px">Foto do veículo</div>'+
-        '<div style="color:var(--tm);font-size:12px;line-height:1.8">'+
-          'Esta foto ainda não foi sincronizada.<br>'+
-          'Acesse pelo celular da expedição<br>para ver as fotos do veículo.'+
-        '</div>'+
-        '<button class="modal-close" onclick="closeTopModal()">✕</button>'+
-        '</div>'+
-        '<button class="modal-back" onclick="closeTopModal()">← Fechar</button>');
+      _showLoteMsgNaoDisp();
     }
   })
   .catch(function(){
     openModal('<div class="modal-img-wrap" style="text-align:center;padding:24px"><div style="font-size:52px">🚛</div><div style="color:var(--tm);font-size:13px;margin-top:12px">Erro ao carregar foto</div><button class="modal-close" onclick="closeTopModal()">✕</button></div><button class="modal-back" onclick="closeTopModal()">← Fechar</button>');
   });
+}
+
+function _showLoteMsgNaoDisp(){
+  openModal('<div class="modal-img-wrap" style="text-align:center;padding:28px 20px">'+
+    '<div style="font-size:52px;margin-bottom:14px">🚛</div>'+
+    '<div style="color:var(--tx);font-size:15px;font-weight:700;margin-bottom:10px">Foto não disponível</div>'+
+    '<div style="color:var(--tm);font-size:12px;line-height:1.9">'+
+      'Fotos tiradas antes de 02/04/2026<br>não foram enviadas ao servidor.<br><br>'+
+      '📱 Veja pelo celular da expedição<br>ou tire novas fotos no próximo lote.'+
+    '</div>'+
+    '<button class="modal-close" onclick="closeTopModal()">✕</button>'+
+    '</div>'+
+    '<button class="modal-back" onclick="closeTopModal()">← Fechar</button>');
 }
 
 function _showLotePhotoModal(src){
