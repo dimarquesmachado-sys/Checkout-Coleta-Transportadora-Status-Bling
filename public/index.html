@@ -767,6 +767,81 @@ function detectFlexML(mlPkgs, onDone){
   next();
 }
 
+// Mapa mkt → idLoja para busca filtrada
+var MKT_TO_LOJA = {
+  'ml':'203146903','shopee':'203583169','amazon':'203967708',
+  'magalu':'203262016','tiktok':'205523707'
+};
+
+// Busca Bling filtrado por loja — chamado ao selecionar marketplace
+function pullFromBlingMkt(mkt){
+  var lojaId=MKT_TO_LOJA[mkt]||null;
+  if(!lojaId) return; // FLEX e outros sem lojaId fixo não filtram
+  var today=todayStr();
+  var d1=new Date(); d1.setDate(d1.getDate()-1);
+  var dateFrom=d1.toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'});
+  // Mostra mini-indicador
+  toast('🔄 Verificando '+( MKT[mkt]||{n:mkt}).n+'...','warn');
+  apiFetch('/bling/pedidos/vendas?idSituacao=24&idLoja='+lojaId+'&dataEmissaoInicial='+dateFrom+'&dataEmissaoFinal='+today+'&pagina=1&limite=100')
+  .then(function(r){
+    if(!r.ok) return;
+    return r.json().then(function(d){
+      var orders=d.data||[];
+      if(orders.length===0) return;
+      var novos=0;
+      orders.forEach(function(o){
+        var etiqueta=String((o.numero||o.id||'')).trim().toUpperCase();
+        var nf=(o.notaFiscal&&o.notaFiscal.numero)||(o.nfe&&o.nfe.numero)||'';
+        var nfChave=(o.notaFiscal&&o.notaFiscal.chave)||(o.nfe&&o.nfe.chave)||'';
+        var numLoja=(o.numeroPedidoLoja)||(o.loja&&o.loja.numeroPedido)||'';
+        var numeracaoLista=(o.transporte&&o.transporte.volumes&&o.transporte.volumes[0]&&o.transporte.volumes[0].numeracao)||
+                           (o.transporte&&o.transporte.codigoRastreamento)||'';
+        if(numeracaoLista) numeracaoLista=String(numeracaoLista).replace(/\s/g,'').toUpperCase();
+        // Verifica se já existe
+        var existente=null;
+        for(var k=0;k<packages.length;k++){
+          if(packages[k].blingId===o.id){existente=packages[k];break;}
+        }
+        if(!existente){
+          // Pedido novo — adiciona
+          packages.unshift({
+            id:o.id,numero:o.numero,etiqueta:etiqueta,nf:nf,nfChave:nfChave?String(nfChave).replace(/\s/g,''):'',
+            numLoja:String(numLoja||''),
+            destinatario:(o.contato&&o.contato.nome)||'—',
+            servico:(o.transporte&&o.transporte.servico&&o.transporte.servico.nome)||'',
+            lojaId:String((o.loja&&o.loja.id)||'0'),mkt:mkt,urgente:false,numeracao:numeracaoLista,
+            blingStatus:Number((o.situacao&&o.situacao.id)||0),
+            dataPedido:o.data||'',date:today,pulledAt:nowTS(),
+            status:'pendente',colT:null,obs:'',blingId:o.id
+          });
+          novos++;
+        } else {
+          // Atualiza campos que podem ter chegado
+          if(nf&&!existente.nf) existente.nf=nf;
+          if(nfChave&&!existente.nfChave) existente.nfChave=String(nfChave).replace(/\s/g,'');
+          if(numLoja&&!existente.numLoja) existente.numLoja=String(numLoja);
+          if(numeracaoLista&&!existente.numeracao) existente.numeracao=numeracaoLista;
+        }
+      });
+      sv('expv5_pkgs',packages);
+      if(novos>0){
+        syncToServer();
+        toast(novos+' pedido(s) novo(s) em '+(MKT[mkt]||{n:mkt}).n+'!','ok');
+        renderMktGrid();
+        renderPkgList();
+      } else {
+        toast('✅ '+(MKT[mkt]||{n:mkt}).n+' atualizado','ok');
+      }
+      // Busca tracking se necessário
+      var semTrack=packages.filter(function(p){
+        return p.mkt===mkt&&p.date===today&&!p.numeracao&&(mkt==='tiktok'||mkt==='shopee'||mkt==='amazon'||mkt==='magalu');
+      });
+      if(semTrack.length>0) setTimeout(function(){detectTrackingPkgs(semTrack);},800);
+    });
+  })
+  .catch(function(){});
+}
+
 function pullFromBling(){
   var btn=document.getElementById('syncBtn');
   btn.disabled=true; btn.innerHTML='<span class="spin"></span> Buscando...';
@@ -791,7 +866,12 @@ function pullFromBling(){
     .catch(function(e){flash('Erro: '+e.message,'err');resetSyncBtn();});
   }
   function finishFetch(all){
-    if(all.length===0){flash('Nenhum pedido VERIFICADO','warn');renderMktGrid();resetSyncBtn();return;}
+    if(all.length===0){
+      // Só avisa se realmente não há nada — se já tem pacotes de hoje no localStorage, fica quieto
+      var temHoje=packages.filter(function(p){return p.date===todayStr();}).length>0;
+      if(!temHoje) flash('Nenhum pedido VERIFICADO','warn');
+      renderMktGrid(); resetSyncBtn(); return;
+    }
     // DEBUG NF: loga os campos da 1ª ordem para identificar onde está a NF
     if(all.length>0){
       var sample=all[0];
@@ -972,6 +1052,13 @@ function selectMkt(mkt){
   document.getElementById('progArea').style.display='none';
   renderPkgList(); renderMktGrid();
   document.getElementById('coletaPanel').scrollIntoView({behavior:'smooth',block:'start'});
+  // Atualiza só essa loja no Bling — verifica se tem pedido novo
+  var agoraMs=Date.now();
+  var lastMktPull=window['_lastMktPull_'+mkt]||0;
+  if(agoraMs-lastMktPull>60000){ // no máximo 1x por minuto por loja
+    window['_lastMktPull_'+mkt]=agoraMs;
+    setTimeout(function(){pullFromBlingMkt(mkt);},800);
+  }
 }
 
 function closeColeta(){
@@ -1469,8 +1556,11 @@ function finalizeColeta(){
     }
   });
   var mktInfo=MKT[activeMkt]||{n:activeMkt};
-  toast(mktInfo.n+': '+qtdEntregues+' entregues'+(problemaPkgs.length>0?', '+problemaPkgs.length+' problema(s)':'')+' ✓','ok');
+  var msgFinal=mktInfo.n+': '+qtdEntregues+' entregues'+(problemaPkgs.length>0?', '+problemaPkgs.length+' problema(s)':'')+' ✓';
+  toast(msgFinal,'ok');
   beepSuccess();
+  // Sincroniza imediatamente para outros dispositivos verem o histórico
+  syncToServer();
   closeColeta(); renderMktGrid(); updateBadge();
 }
 function updateBlingStatus(id){
@@ -1806,9 +1896,12 @@ function stripPhotos(arr){
 
 function syncToServer(){
   // Envia packages e scans (sem fotos) para o servidor
-  // Outros dispositivos recebem na próxima carga
-  apiFetch('/sync/packages',{method:'POST',body:JSON.stringify({packages:packages})}).catch(function(){});
-  apiFetch('/sync/scans',{method:'POST',body:JSON.stringify({scans:stripPhotos(scans)})}).catch(function(){});
+  var today=todayStr();
+  // Envia só packages e scans de hoje (não envia histórico antigo desnecessariamente)
+  var pkgHoje=packages.filter(function(p){return p.date===today;});
+  var scanHoje=stripPhotos(scans.filter(function(s){return s.date===today;}));
+  apiFetch('/sync/packages',{method:'POST',body:JSON.stringify({packages:pkgHoje})}).catch(function(){});
+  apiFetch('/sync/scans',{method:'POST',body:JSON.stringify({scans:scanHoje})}).catch(function(){});
 }
 
 function loadFromServer(cb){
@@ -1866,7 +1959,9 @@ function initApp(){
   packages=ld('expv5_pkgs',[]); scans=ld('expv5_scans',[]);
   document.getElementById('userChip').textContent='👤 '+currentUser;
   renderMktGrid(); updateBadge();
-  // Carrega dados do servidor (outros dispositivos podem ter scans mais recentes)
+  // 1. Envia dados locais para o servidor (para outros dispositivos verem)
+  if(packages.length>0||scans.length>0) syncToServer();
+  // 2. Busca dados do servidor e faz merge
   loadFromServer(function(){
     renderMktGrid(); updateBadge();
     setTimeout(pullFromBling,1200);
