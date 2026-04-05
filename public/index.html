@@ -1122,9 +1122,12 @@ function pullFromBling(){
       var svcLow=svc.toLowerCase();
       var urgente=FLEX_KEYWORDS.some(function(u){return svcLow.indexOf(u)!==-1;});
       var etiqueta=String((o.numero||o.id||'')).trim().toUpperCase();
-      // NF da listagem NÃO é confiável (Bling retorna NF de outros pedidos)
-      // NF só será preenchida via detectNF() com endpoint individual /nfe?idPedidoVenda=
-      var nf='';
+      // NF da listagem — usado como valor inicial, detectNF() vai confirmar/corrigir depois
+      var nf=(o.notaFiscal&&o.notaFiscal.numero)
+           ||(o.nfe&&o.nfe.numero)
+           ||(o.nota&&o.nota.numero)
+           ||'';
+      if(nf) nf=String(nf).trim();
       // Número do pedido no marketplace (Bling guarda em numeroPedidoLoja ou loja.numeroPedido)
       var numLoja=(o.numeroPedidoLoja)||(o.numeroloja)||(o.loja&&o.loja.numeroPedido)||(o.pedidoLoja&&o.pedidoLoja.numero)||'';
       // Extrai tracking da listagem (pode já estar disponível para Shopee, TikTok etc.)
@@ -2774,8 +2777,13 @@ function detectNF(pkgsSemNF, onDone){
           for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}
           console.log('🧾 NF response #'+pkg.numero+' blingId='+pkg.blingId+':', JSON.stringify(nfes[0]));
           if(p){
-            if(num){p.nf=String(num).trim(); console.log('✅ NF #'+p.numero+': '+p.nf);}
-          else{console.warn('⚠ NF não encontrada para #'+pkg.numero+' — d.data:', JSON.stringify(d.data));}
+            if(num){
+              // Sobrescreve sempre — detectNF é mais confiável que a listagem
+              p.nf=String(num).trim();
+              console.log('✅ NF confirmada #'+p.numero+': '+p.nf);
+            } else {
+              console.warn('⚠ NF não encontrada para #'+pkg.numero);
+            }
             if(chave&&!p.nfChave){p.nfChave=String(chave).replace(/\s/g,'');}
             renderMktGrid();
             if(activeMkt) renderPkgList();
