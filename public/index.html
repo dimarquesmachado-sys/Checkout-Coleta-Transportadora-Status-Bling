@@ -2761,33 +2761,32 @@ function detectNF(pkgsSemNF, onDone){
     var pkg=pkgsSemNF[i++];
     if(pkg.nf){next();return;} // já tem NF
     setTimeout(function(){
-      var _nfUrl='/bling/nfe?idPedidoVenda='+pkg.blingId+'&limite=1';
-      console.log('🧾 NF URL: '+_nfUrl+' pedido=#'+pkg.numero+' blingId='+pkg.blingId);
-      apiFetch(_nfUrl)
+      // Busca pedido individual — retorna notaFiscal específica deste pedido
+      apiFetch('/bling/pedidos/vendas/'+pkg.blingId)
       .then(function(r){if(!r.ok)return null;return r.json();})
       .then(function(d){
-        if(!d) return;
-        var nfes=d.data||[];
-        console.log('🧾 NF RESP #'+pkg.numero+':', JSON.stringify(nfes[0]||'vazio'));
-        if(nfes.length>0){
-          var nfe=nfes[0];
-          var num=(nfe.numero)||(nfe.nfe&&nfe.nfe.numero)||(nfe.numeroDocumento)||'';
-          var chave=(nfe.chaveAcesso)||(nfe.chave)||(nfe.nfe&&nfe.nfe.chave)||'';
-          var p=null;
-          for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}
-          console.log('🧾 NF response #'+pkg.numero+' blingId='+pkg.blingId+':', JSON.stringify(nfes[0]));
-          if(p){
-            if(num){
-              // Sobrescreve sempre — detectNF é mais confiável que a listagem
-              p.nf=String(num).trim();
-              console.log('✅ NF confirmada #'+p.numero+': '+p.nf);
-            } else {
-              console.warn('⚠ NF não encontrada para #'+pkg.numero);
-            }
-            if(chave&&!p.nfChave){p.nfChave=String(chave).replace(/\s/g,'');}
-            renderMktGrid();
-            if(activeMkt) renderPkgList();
+        if(!d||!d.data) return;
+        var order=d.data;
+        var num=(order.notaFiscal&&order.notaFiscal.numero)
+               ||(order.nfe&&order.nfe.numero)
+               ||'';
+        var chave=(order.notaFiscal&&order.notaFiscal.chave)
+                 ||(order.nfe&&order.nfe.chave)
+                 ||'';
+        var p=null;
+        for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}
+        if(p){
+          if(num){
+            p.nf=String(num).trim();
+            console.log('✅ NF pedido individual #'+p.numero+': '+p.nf);
           }
+          if(chave&&!p.nfChave) p.nfChave=String(chave).replace(/\s/g,'');
+          // Captura tracking também se ainda não tem
+          var vol=order.transporte&&order.transporte.volumes&&order.transporte.volumes[0];
+          var track=extractTrackStr(vol&&vol.numeracao)||extractTrackStr(vol&&vol.codigoRastreio)||'';
+          if(track&&!p.numeracao) p.numeracao=String(track).replace(/\s/g,'').toUpperCase();
+          renderMktGrid();
+          if(activeMkt) renderPkgList();
         }
         next();
       })
