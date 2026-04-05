@@ -2709,7 +2709,10 @@ function clearDay(){
 // ═══ BUSCA NF ═══
 // A NF não vem no pedido — precisa consultar endpoint separado /nfe
 function detectNF(pkgsSemNF, onDone){
-  console.log('🧾 detectNF iniciado para '+pkgsSemNF.length+' pedidos sem NF');
+  // Filtra apenas pedidos não-ML (para ML o endpoint /nfe não funciona)
+  pkgsSemNF = pkgsSemNF.filter(function(p){ return p.mkt !== 'ml'; });
+  if(pkgsSemNF.length===0){ if(onDone) onDone(); return; }
+  console.log('🧾 detectNF para '+pkgsSemNF.length+' pedidos não-ML sem NF');
   var i=0;
   function next(){
     if(i>=pkgsSemNF.length){
@@ -2735,14 +2738,9 @@ function detectNF(pkgsSemNF, onDone){
           var p=null;
           for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}
           if(p){
-            // Valida: só usa NF se o contato bater com o pedido (evita NF errada do Bling)
-            var pedidoContatoId=String(p.contatoId||'');
-            var contatoOk=!pedidoContatoId||!nfeContatoId||pedidoContatoId===nfeContatoId;
-            if(num&&contatoOk){
+            if(num){
               p.nf=String(num).trim();
               console.log('✅ NF #'+p.numero+': '+p.nf);
-            } else if(num&&!contatoOk){
-              console.warn('⚠ NF rejeitada #'+p.numero+' — contato NF:'+nfeContatoId+' ≠ pedido:'+pedidoContatoId);
             }
             if(chave&&!p.nfChave) p.nfChave=String(chave).replace(/\s/g,'');
             renderMktGrid();
