@@ -227,6 +227,35 @@ app.post('/logout', (req, res) => {
 
 app.get('/me', requireAuth, (req, res) => res.json({ usuario: req.user }));
 
+// Rota especial: busca NF vinculada ao pedido testando parâmetros corretos do Bling v3
+app.get('/bling-nf/:blingId', requireAuth, async (req, res) => {
+  const id = req.params.blingId;
+  const results = {};
+  // Testa todos os parâmetros possíveis do endpoint /nfe do Bling v3
+  const params = [
+    'idPedidoVenda='+id,
+    'idVendas='+id,
+    'idVenda='+id,
+    'pedidoVenda='+id,
+    'idPedido='+id,
+  ];
+  for (const p of params) {
+    try {
+      const r = await blingFetch(BLING_BASE + '/nfe?' + p + '&limite=5');
+      const d = await r.json().catch(() => ({}));
+      results[p] = { status: r.status, count: (d.data||[]).length, first: (d.data||[])[0] };
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch(e) { results[p] = { error: e.message }; }
+  }
+  // Também tenta endpoint alternativo
+  try {
+    const r2 = await blingFetch(BLING_BASE + '/pedidos/vendas/' + id + '/nfe');
+    results['pedidos/vendas/{id}/nfe'] = { status: r2.status };
+    await new Promise(resolve => setTimeout(resolve, 300));
+  } catch(e) { results['pedidos/vendas/{id}/nfe'] = { error: e.message }; }
+  res.json(results);
+});
+
 app.all('/bling/*', requireAuth, async (req, res) => {
   if (!accessToken) {
     const ok = await refreshAccessToken();
@@ -249,6 +278,11 @@ app.all('/bling/*', requireAuth, async (req, res) => {
     });
 
     const data = await r.json().catch(() => ({}));
+    // Log NF responses para diagnóstico
+    if(url.includes('/nfe')){
+      console.log('🧾 NF request:', url);
+      console.log('🧾 NF response:', JSON.stringify(data).substring(0,300));
+    }
     // Bling 401 vira 502 para não confundir com erro de sessão do nosso servidor
     const statusOut = r.status === 401 ? 502 : r.status;
     res.status(statusOut).json(data);
