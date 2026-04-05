@@ -1122,13 +1122,9 @@ function pullFromBling(){
       var svcLow=svc.toLowerCase();
       var urgente=FLEX_KEYWORDS.some(function(u){return svcLow.indexOf(u)!==-1;});
       var etiqueta=String((o.numero||o.id||'')).trim().toUpperCase();
-      // Bling v3: NF pode vir em vários caminhos
-      var nf=(o.notaFiscal&&o.notaFiscal.numero)        // caminho principal
-           ||(o.nfe&&o.nfe.numero)                       // alternativo nfe
-           ||(o.notasFiscais&&o.notasFiscais[0]&&o.notasFiscais[0].numero) // array
-           ||(o.nota&&o.nota.numero)                     // variante nota
-           ||'';
-      if(nf) nf=String(nf).trim();
+      // NF da listagem NÃO é confiável (Bling retorna NF de outros pedidos)
+      // NF só será preenchida via detectNF() com endpoint individual /nfe?idPedidoVenda=
+      var nf='';
       // Número do pedido no marketplace (Bling guarda em numeroPedidoLoja ou loja.numeroPedido)
       var numLoja=(o.numeroPedidoLoja)||(o.numeroloja)||(o.loja&&o.loja.numeroPedido)||(o.pedidoLoja&&o.pedidoLoja.numero)||'';
       // Extrai tracking da listagem (pode já estar disponível para Shopee, TikTok etc.)
@@ -1167,7 +1163,8 @@ function pullFromBling(){
       if(ex.servico) p.servico=ex.servico;
       if(ex.numeracao) p.numeracao=ex.numeracao;
       if(ex.nfChave) p.nfChave=ex.nfChave;
-      if(ex.nf) p.nf=ex.nf;
+      // Propaga NF só se for do mesmo dia (evita NF errada de dia anterior)
+      if(ex.nf&&ex.date===today) p.nf=ex.nf;
       // ⚠ DEVOLUÇÃO: estava coletado/problema mas voltou ao Bling como VERIFICADO (24)
       if((ex.status==='coletado'||ex.status==='problema') && p.blingStatus===24){
         p.status='pendente'; p.colT=null;
