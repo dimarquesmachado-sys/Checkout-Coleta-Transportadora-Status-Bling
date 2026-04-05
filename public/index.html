@@ -793,10 +793,7 @@ function detectTrackingPkgs(pkgs){
           if(activeMkt) renderPkgList(); // atualiza lista aberta com novos dados
           // Avisa quando último tracking carregou
           if(i>=pkgs.length){
-            toast('✅ Trackings carregados — buscando NFs...','ok');
-            var semNF=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
-            if(semNF.length>0) setTimeout(function(){detectNF(semNF,null);},1200);
-            else toast('✅ Tudo carregado!','ok');
+            toast('✅ Tudo carregado! Pode bipar.','ok');
           }
         }
         next();
@@ -1191,11 +1188,7 @@ function pullFromBling(){
           detectTrackingPkgs(semTracking);
         } else {
           // Após FLEX, busca NF de TODOS (ML + outros)
-          var semNF2=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
-          if(semNF2.length>0){
-            console.log('🧾 Chamando detectNF após FLEX para '+semNF2.length+' pedidos');
-            setTimeout(function(){detectNF(semNF2,null);},1200);
-          } else toast('✅ Tudo carregado!','ok');
+toast('✅ Tudo carregado!','ok');
         }
       });
     } else if(semTracking.length>0){
@@ -1203,16 +1196,9 @@ function pullFromBling(){
     } else {
       // Sem ML nem semTracking: busca NF direto
       var semNF3=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
-      if(semNF3.length>0) setTimeout(function(){detectNF(semNF3,null);},1200);
+
     }
-    // Garante que detectNF rode para todos sem NF ao final de qualquer fluxo
-    setTimeout(function(){
-      var semNFfinal=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
-      if(semNFfinal.length>0){
-        console.log('🧾 detectNF final: '+semNFfinal.length+' pedidos sem NF');
-        detectNF(semNFfinal,null);
-      }
-    },8000); // aguarda trackings carregarem (FLEX + semTracking + 1100ms cada)
+
     resetSyncBtn();
   }
   function resetSyncBtn(){
