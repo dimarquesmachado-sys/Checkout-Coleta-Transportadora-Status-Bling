@@ -793,7 +793,9 @@ function detectTrackingPkgs(pkgs){
           if(activeMkt) renderPkgList(); // atualiza lista aberta com novos dados
           // Avisa quando último tracking carregou
           if(i>=pkgs.length){
-            toast('✅ Tudo carregado! Pode bipar.','ok');
+            toast('✅ Trackings carregados!','ok');
+            var semNF=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
+            if(semNF.length>0) setTimeout(function(){detectNF(semNF,null);},1200);
           }
         }
         next();
@@ -1101,7 +1103,8 @@ function pullFromBling(){
       if(numeracaoLista) numeracaoLista=String(numeracaoLista).replace(/\s/g,'').toUpperCase();
       var nfChave=(o.notaFiscal&&o.notaFiscal.chave)||(o.nfe&&o.nfe.chave)||'';
       if(nfChave) nfChave=String(nfChave).replace(/\s/g,'');
-      return {id:o.id,numero:o.numero,etiqueta:etiqueta,nf:nf,nfChave:nfChave,numLoja:String(numLoja||''),
+      var contatoId=(o.contato&&o.contato.id)||'';
+      return {id:o.id,numero:o.numero,etiqueta:etiqueta,nf:nf,nfChave:nfChave,numLoja:String(numLoja||''),contatoId:String(contatoId),
         destinatario:(o.contato&&o.contato.nome)||'—',
         servico:svc,lojaId:lojaId,mkt:mkt,urgente:urgente,numeracao:numeracaoLista,
         blingStatus:Number((o.situacao&&o.situacao.id)||0),
@@ -1199,6 +1202,10 @@ toast('✅ Tudo carregado!','ok');
 
     }
 
+    setTimeout(function(){
+      var semNFfinal=packages.filter(function(p){return p.date===todayStr()&&!p.nf;});
+      if(semNFfinal.length>0) detectNF(semNFfinal,null);
+    },10000);
     resetSyncBtn();
   }
   function resetSyncBtn(){
@@ -2715,32 +2722,32 @@ function detectNF(pkgsSemNF, onDone){
     var pkg=pkgsSemNF[i++];
     if(pkg.nf){next();return;} // já tem NF
     setTimeout(function(){
-      // Busca pedido individual — retorna notaFiscal específica deste pedido
-      apiFetch('/bling/pedidos/vendas/'+pkg.blingId)
+      apiFetch('/bling/nfe?idPedidoVenda='+pkg.blingId+'&limite=1')
       .then(function(r){if(!r.ok)return null;return r.json();})
       .then(function(d){
-        if(!d||!d.data) return;
-        var order=d.data;
-        var num=(order.notaFiscal&&order.notaFiscal.numero)
-               ||(order.nfe&&order.nfe.numero)
-               ||'';
-        var chave=(order.notaFiscal&&order.notaFiscal.chave)
-                 ||(order.nfe&&order.nfe.chave)
-                 ||'';
-        var p=null;
-        for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}
-        if(p){
-          if(num){
-            p.nf=String(num).trim();
-            console.log('✅ NF pedido individual #'+p.numero+': '+p.nf);
+        if(!d) return;
+        var nfes=d.data||[];
+        if(nfes.length>0){
+          var nfe=nfes[0];
+          var num=(nfe.numero)||(nfe.nfe&&nfe.nfe.numero)||'';
+          var chave=(nfe.chaveAcesso)||(nfe.chave)||'';
+          var nfeContatoId=String((nfe.contato&&nfe.contato.id)||'');
+          var p=null;
+          for(var k=0;k<packages.length;k++){if(packages[k].blingId===pkg.blingId){p=packages[k];break;}}
+          if(p){
+            // Valida: só usa NF se o contato bater com o pedido (evita NF errada do Bling)
+            var pedidoContatoId=String(p.contatoId||'');
+            var contatoOk=!pedidoContatoId||!nfeContatoId||pedidoContatoId===nfeContatoId;
+            if(num&&contatoOk){
+              p.nf=String(num).trim();
+              console.log('✅ NF #'+p.numero+': '+p.nf);
+            } else if(num&&!contatoOk){
+              console.warn('⚠ NF rejeitada #'+p.numero+' — contato NF:'+nfeContatoId+' ≠ pedido:'+pedidoContatoId);
+            }
+            if(chave&&!p.nfChave) p.nfChave=String(chave).replace(/\s/g,'');
+            renderMktGrid();
+            if(activeMkt) renderPkgList();
           }
-          if(chave&&!p.nfChave) p.nfChave=String(chave).replace(/\s/g,'');
-          // Captura tracking também se ainda não tem
-          var vol=order.transporte&&order.transporte.volumes&&order.transporte.volumes[0];
-          var track=extractTrackStr(vol&&vol.numeracao)||extractTrackStr(vol&&vol.codigoRastreio)||'';
-          if(track&&!p.numeracao) p.numeracao=String(track).replace(/\s/g,'').toUpperCase();
-          renderMktGrid();
-          if(activeMkt) renderPkgList();
         }
         next();
       })
