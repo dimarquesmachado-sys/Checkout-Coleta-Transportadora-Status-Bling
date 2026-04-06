@@ -2728,7 +2728,7 @@ function detectNF(pkgsSemNF, onDone){
     if(pkg.nf){next();return;} // já tem NF
     setTimeout(function(){
       // Busca NF cruzando loja + data + contato
-      var _nfUrl='/nf-pedido/'+pkg.blingId+'?lojaId='+pkg.lojaId+'&data='+pkg.pedidoData+'&contatoId='+pkg.contatoId;
+      var _nfUrl='/nf-pedido/'+pkg.blingId+'?lojaId='+pkg.lojaId+'&data='+pkg.pedidoData;
       apiFetch(_nfUrl)
       .then(function(r){if(!r.ok)return null;return r.json();})
       .then(function(d){
