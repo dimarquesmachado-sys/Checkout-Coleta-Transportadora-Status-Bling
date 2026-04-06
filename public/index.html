@@ -1028,6 +1028,65 @@ function detectMLNF(mlPkgs, onDone) {
   });
 }
 
+// Detecta pedidos cancelados no Magalu
+function detectMagaluCancelados(magaluPkgs, onDone) {
+  // Filtra apenas Magalu pendentes com numLoja
+  var pkgs = magaluPkgs.filter(function(p) { 
+    return p.mkt === 'magalu' && p.numLoja && !p.cancelado; 
+  });
+  
+  if (pkgs.length === 0) { 
+    if (onDone) onDone(); 
+    return; 
+  }
+  
+  console.log('🔵 Verificando ' + pkgs.length + ' pedidos Magalu para cancelados...');
+  var i = 0;
+  var foundCancelled = 0;
+  
+  function next() {
+    if (i >= pkgs.length) {
+      if (foundCancelled > 0) {
+        sv('expv5_pkgs', packages);
+        renderMktGrid();
+        if (activeMkt) renderPkgList();
+        toast('⚠️ ' + foundCancelled + ' pedido(s) Magalu cancelado(s)!', 'warn');
+      }
+      if (onDone) onDone();
+      return;
+    }
+    
+    var pkg = pkgs[i++];
+    
+    apiFetch('/magalu/pedido/' + encodeURIComponent(pkg.numLoja))
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(d) {
+      if (!d || !d.found) { next(); return; }
+      
+      // Encontra o pacote e atualiza
+      var p = null;
+      for (var k = 0; k < packages.length; k++) {
+        if (packages[k].blingId === pkg.blingId) { p = packages[k]; break; }
+      }
+      
+      if (p && d.cancelled) {
+        p.cancelado = true;
+        foundCancelled++;
+        console.warn('⚠️ CANCELADO: Magalu #' + p.numero);
+      }
+      
+      // Pequeno delay para não sobrecarregar
+      setTimeout(next, 100);
+    })
+    .catch(function(e) {
+      console.error('❌ Magalu pedido erro:', e.message);
+      next();
+    });
+  }
+  
+  next();
+}
+
 // Mapa mkt → idLoja para busca filtrada
 var MKT_TO_LOJA = {
   'ml':'203146903','shopee':'203583169','amazon':'203967708',
@@ -1378,6 +1437,15 @@ toast('✅ Tudo carregado!','ok');
         if(semNFfinal.length > 0) detectNF(semNFfinal, null);
       }
     }, 5000); // 5 segundos para dar tempo do numLoja carregar
+    
+    // Detecta cancelados (ML já é feito no detectMLNF, agora Magalu)
+    setTimeout(function(){
+      var magaluPkgs = packages.filter(function(p){ return p.date===todayStr() && p.mkt==='magalu' && p.numLoja && !p.cancelado; });
+      if(magaluPkgs.length > 0){
+        detectMagaluCancelados(magaluPkgs, null);
+      }
+    }, 8000); // 8 segundos após carregar
+    
     resetSyncBtn();
   }
   function resetSyncBtn(){
