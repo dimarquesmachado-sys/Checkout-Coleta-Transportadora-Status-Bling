@@ -1764,6 +1764,9 @@ function scanLoop(){
     if(codes.length>0){
       var raw=codes[0].rawValue.trim();
       if(raw!==lastCode||Date.now()-lastCodeAt>4000){
+        // Pausa a câmera por 2 segundos após leitura
+        scanPaused=true;
+        setTimeout(function(){ scanPaused=false; }, 2000);
         var photo=capturePhoto(v);
         handleScan(raw,photo);
       }
