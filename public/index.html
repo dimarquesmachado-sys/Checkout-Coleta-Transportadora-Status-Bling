@@ -718,6 +718,15 @@ function detectTrackingPkgs(pkgs){
     if(i>=pkgs.length) return;
     var pkg=pkgs[i++];
     if(pkg.numeracao&&String(pkg.numeracao).toLowerCase().indexOf('object')===-1){next();return;}
+    
+    // MAGALU: busca tracking via API Magalu (Bling não retorna)
+    if(pkg.mkt==='magalu' && pkg.numLoja){
+      detectMagaluTracking(pkg, function(){
+        next();
+      });
+      return;
+    }
+    
     setTimeout(function(){
       apiFetch('/bling/pedidos/vendas/'+pkg.blingId)
       .then(function(r){if(!r.ok)return null;return r.json();})
@@ -804,6 +813,48 @@ function detectTrackingPkgs(pkgs){
     },1100); // 1100ms entre chamadas — evita rate limit Bling
   }
   next();
+}
+
+// ═══ MAGALU TRACKING VIA API ═══
+function detectMagaluTracking(pkg, onDone){
+  var orderCode = pkg.numLoja || pkg.numero;
+  console.log('🔵 Buscando tracking Magalu via API para pedido:', orderCode);
+  
+  apiFetch('/magalu/tracking/'+encodeURIComponent(orderCode))
+  .then(function(r){
+    if(!r.ok){
+      console.warn('🔵 Magalu API não disponível ou não autorizada');
+      return null;
+    }
+    return r.json();
+  })
+  .then(function(d){
+    if(!d) { if(onDone) onDone(); return; }
+    
+    console.log('🔵 Magalu API response:', JSON.stringify(d));
+    
+    if(d.tracking){
+      // Encontra o pacote e atualiza
+      for(var k=0;k<packages.length;k++){
+        if(packages[k].blingId===pkg.blingId){
+          packages[k].numeracao=String(d.tracking).replace(/\s/g,'').toUpperCase();
+          console.log('✅ Tracking MAGALU #'+packages[k].numero+': '+packages[k].numeracao);
+          sv('expv5_pkgs',packages);
+          renderMktGrid();
+          if(activeMkt) renderPkgList();
+          break;
+        }
+      }
+    } else {
+      console.warn('⚠ Magalu API: sem tracking para pedido '+orderCode);
+    }
+    
+    if(onDone) onDone();
+  })
+  .catch(function(e){
+    console.error('❌ Magalu tracking erro:', e.message);
+    if(onDone) onDone();
+  });
 }
 
 function detectFlexML(mlPkgs, onDone){
@@ -1733,8 +1784,9 @@ function selectMagaluPkg(idx){
   sv('expv5_pkgs',packages);
   console.log('🔵 MAGALU selecionado: '+pkg.numero+' → '+code);
   
-  // Fecha modal
-  closeTopModal();
+  // Fecha modal SEM disparar history.back (evita fechar o card)
+  var modals=document.querySelectorAll('.modal-overlay');
+  if(modals.length>0) modals[modals.length-1].remove();
   
   // Processa como bipagem normal
   var chave=pkg.etiqueta;
