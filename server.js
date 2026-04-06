@@ -34,6 +34,17 @@ let mlRefreshToken = process.env.ML_REFRESH_TOKEN || '';
 let mlTokenExpires = mlAccessToken ? Date.now() + 5 * 60 * 60 * 1000 : 0;
 let mlUserId       = process.env.ML_USER_ID || '';
 
+// ═══ TIKTOK SHOP API ═══
+const TIKTOK_APP_KEY    = process.env.TIKTOK_APP_KEY || '';
+const TIKTOK_APP_SECRET = process.env.TIKTOK_APP_SECRET || '';
+const TIKTOK_AUTH_URL   = 'https://auth.tiktok-shops.com';
+const TIKTOK_API_BASE   = 'https://open-api.tiktokglobalshop.com';
+
+let tiktokAccessToken  = process.env.TIKTOK_ACCESS_TOKEN || '';
+let tiktokRefreshToken = process.env.TIKTOK_REFRESH_TOKEN || '';
+let tiktokTokenExpires = tiktokAccessToken ? Date.now() + 5 * 60 * 60 * 1000 : 0;
+let tiktokShopId       = process.env.TIKTOK_SHOP_ID || '';
+
 function parseUsers() {
   const raw = process.env.USERS || 'admin:girassol123';
   return raw.split(',').map(u => {
@@ -834,6 +845,178 @@ app.get('/magalu/pedido/:orderCode', requireAuth, async (req, res) => {
   }
 });
 
+// ═══ TIKTOK SHOP API ROUTES ═══
+
+// Gera assinatura para TikTok API
+function generateTiktokSign(path, params, timestamp) {
+  const sortedKeys = Object.keys(params).sort();
+  let signString = TIKTOK_APP_SECRET + path;
+  for (const key of sortedKeys) {
+    signString += key + params[key];
+  }
+  signString += TIKTOK_APP_SECRET;
+  return crypto.createHmac('sha256', TIKTOK_APP_SECRET).update(signString).digest('hex');
+}
+
+// Redireciona para login do TikTok Shop
+app.get('/tiktok/auth', (req, res) => {
+  if (!TIKTOK_APP_KEY) {
+    return res.send('<h2>Erro: TIKTOK_APP_KEY não configurado no Render.</h2>');
+  }
+  const state = crypto.randomBytes(16).toString('hex');
+  const redirectUri = `https://${req.get('host')}/tiktok/callback`;
+  const authUrl = `${TIKTOK_AUTH_URL}/oauth/authorize?app_key=${TIKTOK_APP_KEY}&state=${state}`;
+  res.redirect(authUrl);
+});
+
+// Callback do OAuth TikTok
+app.get('/tiktok/callback', async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.send('<h2>Erro: código não encontrado na URL.</h2>');
+  if (!TIKTOK_APP_KEY || !TIKTOK_APP_SECRET) {
+    return res.send('<h2>Erro: TIKTOK_APP_KEY ou TIKTOK_APP_SECRET não configurados.</h2>');
+  }
+  
+  try {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const path = '/api/v2/token/get';
+    const params = {
+      app_key: TIKTOK_APP_KEY,
+      app_secret: TIKTOK_APP_SECRET,
+      auth_code: code,
+      grant_type: 'authorized_code',
+    };
+    
+    const queryString = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    const url = `${TIKTOK_AUTH_URL}${path}?${queryString}`;
+    
+    const r = await fetch(url, { method: 'GET' });
+    const data = await r.json();
+    
+    if (data.code !== 0) {
+      throw new Error(JSON.stringify(data));
+    }
+    
+    const tokenData = data.data;
+    tiktokAccessToken  = tokenData.access_token;
+    tiktokRefreshToken = tokenData.refresh_token;
+    tiktokTokenExpires = Date.now() + (tokenData.access_token_expire_in * 1000) - (5 * 60 * 1000);
+    
+    // Pega shop_id da lista de shops autorizados
+    if (tokenData.seller_base_region) {
+      tiktokShopId = tokenData.seller_base_region;
+    }
+    
+    console.log('✅ TikTok tokens obtidos!');
+    
+    // Persiste tokens no Render
+    await persistTiktokTokensToRender().catch(() => {});
+    
+    res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <style>body{font-family:sans-serif;background:#0C0E13;color:#EBE9E2;padding:40px;max-width:700px;margin:0 auto}
+      h2{color:#00F2EA} .ok{background:rgba(0,242,234,.13);border:1px solid rgba(0,242,234,.3);border-radius:8px;padding:14px;color:#00F2EA;margin-top:20px}
+      </style></head><body>
+      <h2>🎵 TikTok Shop conectado!</h2>
+      <div class="ok">✅ Pronto! O sistema agora pode verificar status dos pedidos TikTok.<br><br>Pode fechar esta aba.</div>
+      </body></html>`);
+  } catch (e) {
+    console.error('Erro TikTok callback:', e.message);
+    res.send(`<h2 style="color:red">Erro TikTok: ${e.message}</h2>`);
+  }
+});
+
+// Persiste tokens TikTok no Render
+async function persistTiktokTokensToRender() {
+  if (!RENDER_SERVICE_ID || !RENDER_API_KEY) return;
+  try {
+    for (const [key, value] of [
+      ['TIKTOK_ACCESS_TOKEN', tiktokAccessToken],
+      ['TIKTOK_REFRESH_TOKEN', tiktokRefreshToken],
+      ['TIKTOK_SHOP_ID', tiktokShopId]
+    ]) {
+      if (!value) continue;
+      await fetch(`https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${RENDER_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value }),
+      });
+    }
+    console.log('✅ TikTok tokens persistidos no Render!');
+  } catch (e) {
+    console.error('❌ Erro persistir TikTok:', e.message);
+  }
+}
+
+// Status TikTok
+app.get('/tiktok/status', (req, res) => {
+  res.json({
+    connected: !!tiktokAccessToken,
+    hasCredentials: !!(TIKTOK_APP_KEY && TIKTOK_APP_SECRET),
+    shopId: tiktokShopId || null,
+    tokenExpires: tiktokTokenExpires ? new Date(tiktokTokenExpires).toISOString() : null,
+  });
+});
+
+// Busca pedido TikTok para verificar status (cancelado)
+app.get('/tiktok/pedido/:orderCode', requireAuth, async (req, res) => {
+  const { orderCode } = req.params;
+  
+  if (!tiktokAccessToken) {
+    return res.status(401).json({ error: 'TikTok não conectado. Acesse /tiktok/auth', needsAuth: true });
+  }
+  
+  try {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const path = '/order/202309/orders';
+    
+    // Monta parâmetros
+    const params = {
+      app_key: TIKTOK_APP_KEY,
+      timestamp: String(timestamp),
+      shop_cipher: tiktokShopId,
+      order_id: orderCode,
+    };
+    
+    const sign = generateTiktokSign(path, params, timestamp);
+    params.sign = sign;
+    params.access_token = tiktokAccessToken;
+    
+    const queryString = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    const url = `${TIKTOK_API_BASE}${path}?${queryString}`;
+    
+    const r = await fetch(url);
+    const data = await r.json();
+    
+    if (data.code !== 0) {
+      // Tenta buscar por order_sn
+      return res.json({ found: false, orderCode, error: data.message });
+    }
+    
+    const orders = data.data?.orders || [];
+    if (orders.length === 0) {
+      return res.json({ found: false, orderCode });
+    }
+    
+    const order = orders[0];
+    const status = (order.order_status || '').toLowerCase();
+    
+    // Status de cancelado no TikTok: CANCEL, CANCELLED
+    const isCancelled = status.includes('cancel');
+    
+    console.log(`🎵 TikTok pedido ${orderCode}: status=${status}, cancelled=${isCancelled}`);
+    
+    res.json({
+      found: true,
+      orderId: order.order_id,
+      status: status,
+      cancelled: isCancelled,
+    });
+  } catch (e) {
+    console.error('❌ TikTok pedido erro:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/bling-nf/:blingId', async (req, res) => { // diagnóstico temporário
   const id = req.params.blingId;
   const results = {};
@@ -1193,5 +1376,7 @@ app.listen(PORT, () => {
   console.log(`🔄 Bling Refresh Token: ${refreshToken ? '✓ presente' : '✗ ausente'}`);
   console.log(`🔵 Magalu Client ID: ${MAGALU_CLIENT_ID ? '✓ configurado' : '✗ NÃO configurado'}`);
   console.log(`🔵 Magalu Access Token: ${magaluAccessToken ? '✓ presente' : '✗ ausente — acesse /magalu/auth'}`);
+  console.log(`🎵 TikTok App Key: ${TIKTOK_APP_KEY ? '✓ configurado' : '✗ NÃO configurado'}`);
+  console.log(`🎵 TikTok Access Token: ${tiktokAccessToken ? '✓ presente' : '✗ ausente — acesse /tiktok/auth'}`);
   console.log(`👥 Usuários: ${parseUsers().map(u => u.nome).join(', ')}`);
 });
