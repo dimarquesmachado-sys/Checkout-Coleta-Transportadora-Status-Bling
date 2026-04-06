@@ -228,20 +228,46 @@ app.post('/logout', (req, res) => {
 app.get('/me', requireAuth, (req, res) => res.json({ usuario: req.user }));
 
 // Rota especial: busca NF vinculada ao pedido testando parâmetros corretos do Bling v3
+// Busca NF correta para um pedido — cruza por loja + data + contato
+app.get('/nf-pedido/:blingId', requireAuth, async (req, res) => {
+  const { blingId } = req.params;
+  const { lojaId, data, contatoId } = req.query;
+  if (!lojaId || !data || !contatoId) return res.status(400).json({ error: 'lojaId, data e contatoId obrigatórios' });
+  try {
+    // Busca NFs da loja na data do pedido
+    const url = `${BLING_BASE}/nfe?idLoja=${lojaId}&dataInicial=${data}&dataFinal=${data}&limite=100`;
+    const r = await blingFetch(url);
+    const d = await r.json().catch(() => ({}));
+    const nfes = d.data || [];
+    // Cruza pelo contato.id
+    const nfe = nfes.find(n => n.contato && String(n.contato.id) === String(contatoId));
+    if (nfe) {
+      res.json({ numero: nfe.numero, chave: nfe.chaveAcesso || nfe.chave || '', id: nfe.id });
+    } else {
+      // Se não achou por contato, retorna vazio
+      res.json({ numero: '', chave: '', debug: `${nfes.length} NFs na data, nenhuma bate com contato ${contatoId}` });
+    }
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/bling-nf/:blingId', async (req, res) => { // diagnóstico temporário
   const id = req.params.blingId;
   const results = {};
   // Testa todos os parâmetros possíveis do endpoint /nfe do Bling v3
-  // Testa com o número do pedido (103986) não o ID (25461496793)
-  const numero = req.query.numero || id;
+  const numero = req.query.numero || '';
   const data = req.query.data || '';
   const contato = req.query.contato || '';
+  // A NF tem o campo "numero do pedido" — testar filtros que usam isso
   const params = [
-    'idPedidoVenda='+id,
-    'idVendas='+id,
-    'numero='+numero,  // número do pedido, não o ID
+    'numeroPedido='+numero,
+    'pedido='+numero,
     'numeroPedidoVenda='+numero,
-    'idContato='+contato+'&dataInicial='+data+'&dataFinal='+data,
+    'numPedido='+numero,
+    'idPedidoVenda='+id,
+    'numeroVenda='+numero,
+    'idVendas='+id+'&limite=5',
   ];
   for (const p of params) {
     try {
