@@ -2896,10 +2896,9 @@ function clearDay(){
 // ═══ BUSCA NF ═══
 // A NF não vem no pedido — precisa consultar endpoint separado /nfe
 function detectNF(pkgsSemNF, onDone){
-  // Filtra apenas pedidos não-ML (para ML o endpoint /nfe não funciona)
-  pkgsSemNF = pkgsSemNF.filter(function(p){ return p.mkt !== 'ml'; });
+  // Busca NF para todos os marketplaces (Bling às vezes não retorna no endpoint individual)
   if(pkgsSemNF.length===0){ if(onDone) onDone(); return; }
-  console.log('🧾 detectNF para '+pkgsSemNF.length+' pedidos não-ML sem NF');
+  console.log('🧾 detectNF para '+pkgsSemNF.length+' pedidos sem NF');
   var i=0;
   function next(){
     if(i>=pkgsSemNF.length){
