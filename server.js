@@ -228,16 +228,20 @@ app.post('/logout', (req, res) => {
 app.get('/me', requireAuth, (req, res) => res.json({ usuario: req.user }));
 
 // Rota especial: busca NF vinculada ao pedido testando parâmetros corretos do Bling v3
-app.get('/bling-nf/:blingId', requireAuth, async (req, res) => {
+app.get('/bling-nf/:blingId', async (req, res) => { // diagnóstico temporário
   const id = req.params.blingId;
   const results = {};
   // Testa todos os parâmetros possíveis do endpoint /nfe do Bling v3
+  // Testa com o número do pedido (103986) não o ID (25461496793)
+  const numero = req.query.numero || id;
+  const data = req.query.data || '';
+  const contato = req.query.contato || '';
   const params = [
     'idPedidoVenda='+id,
     'idVendas='+id,
-    'idVenda='+id,
-    'pedidoVenda='+id,
-    'idPedido='+id,
+    'numero='+numero,  // número do pedido, não o ID
+    'numeroPedidoVenda='+numero,
+    'idContato='+contato+'&dataInicial='+data+'&dataFinal='+data,
   ];
   for (const p of params) {
     try {
