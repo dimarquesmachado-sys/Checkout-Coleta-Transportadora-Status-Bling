@@ -775,11 +775,8 @@ function detectTrackingPkgs(pkgs){
           // numLoja
           if(numLojaD&&!p.numLoja){p.numLoja=String(numLojaD).trim();}
           
-          // MAGALU: tracking vem da API Magalu (Bling não retorna)
-          if(p.mkt==='magalu' && !track && p.numLoja){
-            // Busca tracking via API Magalu em paralelo
-            detectMagaluTracking(p, null);
-          } else if(track){
+          // Tracking (para Magalu, Bling não retorna - usa fallback manual)
+          if(track){
             p.numeracao=String(track).replace(/\s/g,'').toUpperCase();
             console.log('✅ Tracking '+p.mkt.toUpperCase()+' #'+p.numero+': '+p.numeracao);
           } else {
