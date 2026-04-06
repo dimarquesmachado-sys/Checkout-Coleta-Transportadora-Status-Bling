@@ -1375,7 +1375,7 @@ app.listen(PORT, () => {
   console.log(`🔑 Bling Access Token: ${accessToken ? '✓ presente' : '✗ ausente — acesse /callback'}`);
   console.log(`🔄 Bling Refresh Token: ${refreshToken ? '✓ presente' : '✗ ausente'}`);
   console.log(`🔵 Magalu Client ID: ${MAGALU_CLIENT_ID ? '✓ configurado' : '✗ NÃO configurado'}`);
-  console.log(`🔵 Magalu Access Token: ${magaluAccessToken ? '✓ presente' : '✗ ausente — acesse /magalu/auth'}`);
+  console.log(`🔵 Magalu: ${MAGALU_CLIENT_ID && MAGALU_CLIENT_SECRET ? '✓ credenciais OK (token automático)' : '✗ configure MAGALU_CLIENT_ID e MAGALU_CLIENT_SECRET'}`);
   console.log(`🎵 TikTok App Key: ${TIKTOK_APP_KEY ? '✓ configurado' : '✗ NÃO configurado'}`);
   console.log(`🎵 TikTok Access Token: ${tiktokAccessToken ? '✓ presente' : '✗ ausente — acesse /tiktok/auth'}`);
   console.log(`👥 Usuários: ${parseUsers().map(u => u.nome).join(', ')}`);
