@@ -2726,14 +2726,16 @@ function detectNF(pkgsSemNF, onDone){
     var pkg=pkgsSemNF[i++];
     if(pkg.nf){next();return;} // já tem NF
     setTimeout(function(){
-      // Filtra por contato E data do pedido — mais confiável que idPedidoVenda
-      var _nfParams='contato='+pkg.contatoId+'&dataInicial='+pkg.pedidoData+'&dataFinal='+pkg.pedidoData+'&limite=5';
-      if(!pkg.contatoId) _nfParams='idPedidoVenda='+pkg.blingId+'&limite=1';
-      apiFetch('/bling/nfe?'+_nfParams)
+      // Sub-recurso específico do pedido — endpoint correto no Bling v3
+      apiFetch('/bling/pedidos/vendas/'+pkg.blingId+'/nfe')
       .then(function(r){if(!r.ok)return null;return r.json();})
       .then(function(d){
         if(!d) return;
-        var nfes=d.data||[];
+        // /pedidos/vendas/{id}/nfe pode retornar objeto direto ou array
+        var nfes=Array.isArray(d.data)?d.data:(d.data?[d.data]:[]);
+        // Tenta também d direto (alguns endpoints retornam sem .data)
+        if(nfes.length===0&&d.numero) nfes=[d];
+        console.log('🧾 NF sub-recurso #'+pkg.numero+':', JSON.stringify(nfes[0]||'vazio'));
         if(nfes.length>0){
           var nfe=nfes[0];
           var num=(nfe.numero)||(nfe.nfe&&nfe.nfe.numero)||'';
