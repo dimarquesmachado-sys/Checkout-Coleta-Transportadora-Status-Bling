@@ -228,34 +228,35 @@ app.post('/logout', (req, res) => {
 app.get('/me', requireAuth, (req, res) => res.json({ usuario: req.user }));
 
 // Rota especial: busca NF vinculada ao pedido testando parâmetros corretos do Bling v3
-// Busca NF correta para um pedido — pelo ID sequencial mais próximo
+// Busca NF correta para um pedido — pagina /nfe até achar ID próximo ao blingId do pedido
 app.get('/nf-pedido/:blingId', requireAuth, async (req, res) => {
   const { blingId } = req.params;
-  const { lojaId, data } = req.query;
-  if (!lojaId || !data) return res.status(400).json({ error: 'lojaId e data obrigatórios' });
+  const pedidoId = parseInt(blingId);
+  const TOLERANCE = 2000; // NF criada até 2000 IDs depois do pedido
+  const MAX_PAGES = 10;
   try {
-    // Busca NFs da loja na data do pedido
-    const url = `${BLING_BASE}/nfe?idLoja=${lojaId}&dataInicial=${data}&dataFinal=${data}&limite=100`;
-    const r = await blingFetch(url);
-    const d = await r.json().catch(() => ({}));
-    const nfes = d.data || [];
-    const pedidoId = parseInt(blingId);
-    // Pega NFs com ID maior que o pedido (NF criada após o pedido)
-    const candidatas = nfes
-      .filter(n => n.id > pedidoId)
-      .sort((a, b) => a.id - b.id); // menor ID primeiro = mais próxima
-    const nfe = candidatas[0];
-    if (nfe) {
-      res.json({ numero: nfe.numero, chave: nfe.chaveAcesso || nfe.chave || '', id: nfe.id });
-    } else {
-      // Fallback: pega NF com ID mais próximo (antes ou depois)
-      const closest = nfes.sort((a,b) => Math.abs(a.id-pedidoId) - Math.abs(b.id-pedidoId))[0];
-      if (closest) {
-        res.json({ numero: closest.numero, chave: closest.chaveAcesso || closest.chave || '', id: closest.id, fallback: true });
-      } else {
-        res.json({ numero: '', chave: '', debug: `${nfes.length} NFs na data` });
+    for (let pagina = 1; pagina <= MAX_PAGES; pagina++) {
+      await new Promise(r => setTimeout(r, pagina > 1 ? 400 : 0));
+      const url = `${BLING_BASE}/nfe?limite=100&pagina=${pagina}`;
+      const r = await blingFetch(url);
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const nfes = d.data || [];
+      if (nfes.length === 0) break;
+      // NFs vêm em ordem decrescente de ID — verifica se já passamos do range
+      const minId = Math.min(...nfes.map(n => n.id));
+      // Procura NF com ID próximo ao pedido (criada logo depois)
+      const candidatas = nfes
+        .filter(n => n.id > pedidoId && n.id <= pedidoId + TOLERANCE)
+        .sort((a, b) => a.id - b.id);
+      if (candidatas.length > 0) {
+        const nfe = candidatas[0];
+        return res.json({ numero: nfe.numero, chave: nfe.chaveAcesso || nfe.chave || '', id: nfe.id });
       }
+      // Se o menor ID desta página já é menor que o pedidoId, não vai achar em páginas seguintes
+      if (minId < pedidoId - TOLERANCE) break;
     }
+    res.json({ numero: '', chave: '' });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
