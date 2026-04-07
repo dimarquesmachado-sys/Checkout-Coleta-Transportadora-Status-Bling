@@ -320,6 +320,21 @@ header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;
 .t-ok{background:var(--gr);color:#071A0F}
 .t-warn{background:var(--am);color:#1A0B00}
 .t-err{background:var(--rd);color:#fff}
+
+/* OVERLAY CÂMERA VEÍCULO */
+.camera-overlay{position:fixed;inset:0;background:#000;z-index:9999;display:none;flex-direction:column}
+.camera-overlay.show{display:flex}
+.camera-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(0,0,0,.8)}
+.camera-counter{font-size:18px;font-weight:700;color:var(--gr)}
+.camera-close{width:44px;height:44px;background:var(--rd);border:none;border-radius:50%;color:#fff;font-size:20px;cursor:pointer}
+.camera-video-wrap{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.camera-video-wrap video{width:100%;height:100%;object-fit:cover}
+.camera-thumbs{display:flex;gap:8px;padding:12px 16px;background:rgba(0,0,0,.8);overflow-x:auto}
+.camera-thumb{width:60px;height:60px;border-radius:8px;object-fit:cover;border:2px solid var(--gr)}
+.camera-controls{display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.8)}
+.camera-capture{width:72px;height:72px;background:#fff;border:4px solid var(--gr);border-radius:50%;cursor:pointer;transition:transform .1s}
+.camera-capture:active{transform:scale(0.9)}
+.camera-capture.done{background:var(--gr)}
 </style>
 </head>
 <body>
@@ -1774,41 +1789,140 @@ function desfazerUltimo(){
 }
 
 // ═══ FOTOS VEÍCULO ═══
+var cameraStream = null;
+
 function abrirCameraFoto(){
-  // Cria input temporário para forçar nova captura sempre
+  var overlay = document.getElementById('cameraOverlay');
+  var video = document.getElementById('cameraVideo');
+  
+  // Atualiza contador
+  atualizarCameraUI();
+  
+  // Tenta abrir câmera nativa
+  if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    })
+    .then(function(stream){
+      cameraStream = stream;
+      video.srcObject = stream;
+      overlay.classList.add('show');
+    })
+    .catch(function(err){
+      console.error('Erro ao acessar câmera:', err);
+      toast('Usando modo alternativo...','warn');
+      abrirCameraFallback();
+    });
+  } else {
+    abrirCameraFallback();
+  }
+}
+
+function abrirCameraFallback(){
   var inp=document.createElement('input');
   inp.type='file'; inp.accept='image/*'; inp.capture='environment';
   inp.style.display='none';
-  inp.onchange=function(){onFotoSelecionada(inp);};
+  inp.onchange=function(){onFotoSelecionadaFallback(inp);};
   document.body.appendChild(inp);
   inp.click();
 }
 
-function onFotoSelecionada(input){
+function onFotoSelecionadaFallback(input){
   var file=input.files[0];
   if(!file) return;
   var reader=new FileReader();
   reader.onload=function(e){
     fotosVeiculo.push(e.target.result);
     renderFotosVeiculo();
-    var btn=document.getElementById('btnFotoVeiculo');
+    atualizarBotaoFoto();
     toast('Foto '+fotosVeiculo.length+'/3 salva ✓','ok');
-    if(fotosVeiculo.length>=3){
-      btn.className='foto-btn done';
-      btn.textContent='✓ 3 fotos tiradas';
-      document.getElementById('fotoAlert').style.display='none';
-    } else {
-        var proxima=fotosVeiculo.length+1;
-      btn.innerHTML='📷 Tirar Foto '+proxima+' de 3';
+    if(fotosVeiculo.length<3){
+      setTimeout(function(){abrirCameraFallback();}, 400);
     }
   };
   reader.readAsDataURL(file);
   input.value='';
+  setTimeout(function(){if(input.parentNode) input.parentNode.removeChild(input);}, 100);
 }
+
+function capturarFotoVeiculo(){
+  var video = document.getElementById('cameraVideo');
+  var canvas = document.getElementById('cameraCanvas');
+  var ctx = canvas.getContext('2d');
+  
+  canvas.width = video.videoWidth || 1280;
+  canvas.height = video.videoHeight || 720;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  
+  var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  fotosVeiculo.push(dataUrl);
+  
+  // Feedback visual
+  var btn = document.getElementById('cameraCapture');
+  btn.style.transform = 'scale(0.85)';
+  setTimeout(function(){ btn.style.transform = ''; }, 100);
+  
+  toast('Foto '+fotosVeiculo.length+'/3 ✓','ok');
+  atualizarCameraUI();
+  renderFotosVeiculo();
+  atualizarBotaoFoto();
+  
+  if(fotosVeiculo.length >= 3){
+    setTimeout(function(){ fecharCameraVeiculo(); }, 500);
+  }
+}
+
+function atualizarCameraUI(){
+  var counter = document.getElementById('cameraCounter');
+  var thumbs = document.getElementById('cameraThumbs');
+  var capture = document.getElementById('cameraCapture');
+  
+  if(fotosVeiculo.length >= 3){
+    counter.textContent = '✅ 3 fotos tiradas!';
+    counter.style.color = 'var(--gr)';
+    capture.classList.add('done');
+  } else {
+    counter.textContent = '📸 Foto '+(fotosVeiculo.length+1)+' de 3';
+    counter.style.color = 'var(--gr)';
+    capture.classList.remove('done');
+  }
+  
+  // Thumbnails
+  var html = '';
+  fotosVeiculo.forEach(function(f, i){
+    html += '<img class="camera-thumb" src="'+f+'" alt="foto '+(i+1)+'">';
+  });
+  thumbs.innerHTML = html;
+}
+
+function fecharCameraVeiculo(){
+  var overlay = document.getElementById('cameraOverlay');
+  var video = document.getElementById('cameraVideo');
+  
+  if(cameraStream){
+    cameraStream.getTracks().forEach(function(track){ track.stop(); });
+    cameraStream = null;
+  }
+  video.srcObject = null;
+  overlay.classList.remove('show');
+}
+
+function atualizarBotaoFoto(){
+  var btn = document.getElementById('btnFotoVeiculo');
+  if(fotosVeiculo.length >= 3){
+    btn.className = 'foto-btn done';
+    btn.textContent = '✓ 3 fotos tiradas';
+    document.getElementById('fotoAlert').style.display = 'none';
+  } else {
+    btn.className = 'foto-btn';
+    btn.innerHTML = '📷 Tirar Foto '+(fotosVeiculo.length+1)+' de 3';
+  }
+}
+
 function renderFotosVeiculo(){
-  console.log('📸 renderFotosVeiculo:', fotosVeiculo.length, 'fotos');
   var container=document.getElementById('veiculoFotos');
-  if(!container){ console.log('⚠ veiculoFotos não encontrado!'); return; }
+  if(!container) return;
   container.innerHTML=fotosVeiculo.map(function(f,i){
     return '<div class="vthumb-wrap">'+
       '<img src="'+f+'" onclick="verFoto('+i+')" alt="foto '+(i+1)+'">'+
@@ -1816,12 +1930,11 @@ function renderFotosVeiculo(){
       '</div>';
   }).join('');
 }
+
 function delFoto(i){
   fotosVeiculo.splice(i,1);
   renderFotosVeiculo();
-  var btn=document.getElementById('btnFotoVeiculo');
-  btn.className='foto-btn';
-  btn.textContent='📷 Tirar foto ('+fotosVeiculo.length+'/3)';
+  atualizarBotaoFoto();
 }
 function verFoto(i){
   var src=fotosVeiculo[i];
@@ -3089,5 +3202,22 @@ function onScanImgError(img){
   }
 }
 </script>
+
+<!-- OVERLAY CÂMERA VEÍCULO -->
+<div class="camera-overlay" id="cameraOverlay">
+  <div class="camera-header">
+    <div class="camera-counter" id="cameraCounter">📸 Foto 1 de 3</div>
+    <button class="camera-close" onclick="fecharCameraVeiculo()">✕</button>
+  </div>
+  <div class="camera-video-wrap">
+    <video id="cameraVideo" autoplay playsinline muted></video>
+  </div>
+  <div class="camera-thumbs" id="cameraThumbs"></div>
+  <div class="camera-controls">
+    <button class="camera-capture" id="cameraCapture" onclick="capturarFotoVeiculo()"></button>
+  </div>
+  <canvas id="cameraCanvas" style="display:none"></canvas>
+</div>
+
 </body>
 </html>
