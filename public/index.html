@@ -1887,35 +1887,39 @@ function handleScan(rawCode,photo){
 
   // ══ DETECÇÃO QR MAGALU - PRIORIDADE MÁXIMA ══
   var isMagaluQR=false;
+  var magaluCode='';
   
-  // Se contém EXTERNAL_GROUPER_CODE, é QR Magalu com certeza
-  if(rawCode.indexOf('EXTERNAL_GROUPER_CODE')!==-1 || code.indexOf('EXTERNAL_GROUPER_CODE')!==-1){
+  // Se contém EXTERNAL_GROUPER_CODE ou TAG_CODE, é QR Magalu
+  if(rawCode.indexOf('EXTERNAL_GROUPER_CODE')!==-1 || rawCode.indexOf('TAG_CODE')!==-1 ||
+     code.indexOf('EXTERNAL_GROUPER_CODE')!==-1 || code.indexOf('TAG_CODE')!==-1){
     isMagaluQR=true;
-    // Extrai os primeiros 15-16 dígitos do EXTERNAL_GROUPER_CODE
-    var extMatch=rawCode.match(/EXTERNAL_GROUPER_CODE[^0-9]*(\d{15,16})/);
-    if(!extMatch) extMatch=code.match(/EXTERNAL_GROUPER_CODE[^0-9]*(\d{15,16})/);
-    if(extMatch){
-      code=extMatch[1];
-      console.log('🔵 MAGALU QR: EXTERNAL_GROUPER_CODE → '+code);
-    } else {
-      // Fallback: pega TAG_CODE
-      var tagMatch=rawCode.match(/TAG_CODE[^0-9]*(\d{9})/);
-      if(!tagMatch) tagMatch=code.match(/TAG_CODE[^0-9]*(\d{9})/);
-      if(tagMatch){
-        code=tagMatch[1];
-        console.log('🔵 MAGALU QR: TAG_CODE → '+code);
+    console.log('🔵 QR MAGALU DETECTADO!');
+    
+    // Tenta extrair EXTERNAL_GROUPER_CODE (várias formas)
+    var extPatterns=[
+      /EXTERNAL_GROUPER_CODE["\s:]+(\d{10,18})/i,
+      /EXTERNAL_GROUPER_CODE[^0-9]*(\d{10,18})/i,
+      /"EXTERNAL_GROUPER_CODE"\s*:\s*"(\d+)/i
+    ];
+    for(var i=0;i<extPatterns.length;i++){
+      var m=rawCode.match(extPatterns[i]) || code.match(extPatterns[i]);
+      if(m){ magaluCode=m[1]; console.log('🔵 EXTERNAL_GROUPER_CODE extraído:', magaluCode); break; }
+    }
+    
+    // Se não achou, tenta TAG_CODE
+    if(!magaluCode){
+      var tagPatterns=[
+        /TAG_CODE["\s:]+(\d{9,12})/i,
+        /TAG_CODE[^0-9]*(\d{9,12})/i,
+        /"TAG_CODE"\s*:\s*"(\d+)/i
+      ];
+      for(var j=0;j<tagPatterns.length;j++){
+        var t=rawCode.match(tagPatterns[j]) || code.match(tagPatterns[j]);
+        if(t){ magaluCode=t[1].replace(/-/g,''); console.log('🔵 TAG_CODE extraído:', magaluCode); break; }
       }
     }
-  }
-  // Se contém TAG_CODE mas não EXTERNAL
-  else if(rawCode.indexOf('TAG_CODE')!==-1 || code.indexOf('TAG_CODE')!==-1){
-    isMagaluQR=true;
-    var tagMatch=rawCode.match(/TAG_CODE[^0-9]*(\d{9})/);
-    if(!tagMatch) tagMatch=code.match(/TAG_CODE[^0-9]*(\d{9})/);
-    if(tagMatch){
-      code=tagMatch[1];
-      console.log('🔵 MAGALU QR: TAG_CODE → '+code);
-    }
+    
+    if(magaluCode) code=magaluCode;
   }
 
   // ── Formato JSON genérico (ML, etc)
@@ -2035,6 +2039,8 @@ function handleScan(rawCode,photo){
     // Funciona tanto no card Magalu quanto no card FLEX
     // SEMPRE pergunta qual pedido - nunca associa automaticamente
     var isMagaluContext = (activeMkt==='magalu') || (activeMkt==='flex' && isMagaluQR);
+    console.log('🔵 FALLBACK CHECK: activeMkt='+activeMkt+', isMagaluQR='+isMagaluQR+', context='+isMagaluContext);
+    
     if(isMagaluContext){
       var magaluPendentes=packages.filter(function(p){
         if(p.mkt!=='magalu') return false;
@@ -2042,38 +2048,22 @@ function handleScan(rawCode,photo){
         if(p.numeracao) return false; // Já tem tracking
         if(colSession.indexOf(p.etiqueta)!==-1) return false; // Já bipado
         // Quando detectou QR Magalu, mostra TODOS os Magalu pendentes (urgentes ou não)
-        // Caso contrário, no FLEX só urgentes, no Magalu só não-urgentes
         if(isMagaluQR) return true;
         if(activeMkt==='flex') return p.urgente;
         return !p.urgente;
       });
-      console.log('🔵 MAGALU fallback ('+activeMkt+', QR='+isMagaluQR+'): '+magaluPendentes.length+' pendentes sem tracking, código='+code);
-      console.log('🔵 MAGALU pendentes:', magaluPendentes.map(function(p){return '#'+p.numero+' numLoja='+p.numLoja+' urg='+p.urgente;}).join(', '));
+      console.log('🔵 MAGALU fallback: '+magaluPendentes.length+' pendentes, código='+code);
       
       if(magaluPendentes.length>=1){
-        // Aguarda 2s e mostra modal para escolher (SEMPRE pergunta)
+        // Mostra picker IMEDIATAMENTE para QR Magalu
         scanPaused=true;
-        document.getElementById('camStatus').textContent='Verificando...';
-        setTimeout(function(){
-          scanPaused=false;
-          document.getElementById('camStatus').textContent='Aponte para o código de barras';
-          // Re-verifica pendentes (captura isMagaluQR via closure)
-          var stillPending=packages.filter(function(p){
-            if(p.mkt!=='magalu'||p.status!=='pendente'||p.numeracao||colSession.indexOf(p.etiqueta)!==-1) return false;
-            if(isMagaluQR) return true; // QR Magalu detectado: mostra todos
-            if(activeMkt==='flex') return p.urgente;
-            return !p.urgente;
-          });
-          if(stillPending.length>=1){
-            showMagaluPicker(stillPending, code, photo);
-          }
-        }, 2000);
+        showMagaluPicker(magaluPendentes, code, photo);
         return;
       }
     }
     
     if(!pkg){
-      showFb('Código não encontrado: '+code,'warn');
+      showFb('Código não encontrado: '+code.substring(0,50)+(code.length>50?'...':''),'warn');
       beepError(); return;
     }
   }
