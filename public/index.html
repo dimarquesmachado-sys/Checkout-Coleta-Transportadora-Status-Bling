@@ -1330,6 +1330,9 @@ function pullFromBlingMkt(mkt){
         var numLoja=(o.numeroPedidoLoja)||(o.loja&&o.loja.numeroPedido)||'';
         var numeracaoLista=(o.transporte&&o.transporte.volumes&&o.transporte.volumes[0]&&o.transporte.volumes[0].numeracao)||
                            (o.transporte&&o.transporte.codigoRastreamento)||'';
+        // Ignora se for objeto JSON (Magalu às vezes retorna objeto no campo numeracao)
+        if(numeracaoLista && typeof numeracaoLista === 'object') numeracaoLista = '';
+        if(numeracaoLista && String(numeracaoLista).indexOf('{') !== -1) numeracaoLista = '';
         if(numeracaoLista) numeracaoLista=String(numeracaoLista).replace(/\s/g,'').toUpperCase();
         // Verifica se já existe
         var existente=null;
@@ -1440,6 +1443,9 @@ function pullFromBling(){
       // Extrai tracking da listagem (pode já estar disponível para Shopee, TikTok etc.)
       var numeracaoLista=(o.transporte&&o.transporte.volumes&&o.transporte.volumes[0]&&o.transporte.volumes[0].numeracao)||
                          (o.transporte&&o.transporte.codigoRastreamento)||'';
+      // Ignora se for objeto JSON (Magalu às vezes retorna objeto no campo numeracao)
+      if(numeracaoLista && typeof numeracaoLista === 'object') numeracaoLista = '';
+      if(numeracaoLista && String(numeracaoLista).indexOf('{') !== -1) numeracaoLista = '';
       if(numeracaoLista) numeracaoLista=String(numeracaoLista).replace(/\s/g,'').toUpperCase();
       var nfChave=(o.notaFiscal&&o.notaFiscal.chave)||(o.nfe&&o.nfe.chave)||'';
       if(nfChave) nfChave=String(nfChave).replace(/\s/g,'');
@@ -3610,6 +3616,11 @@ function initApp(){
   var cleaned=false;
   packages.forEach(function(p){
     if(p.numeracao&&String(p.numeracao).toLowerCase().indexOf('object')!==-1){
+      p.numeracao=''; cleaned=true;
+    }
+    // Limpa tracking que é JSON (Magalu às vezes retorna objeto)
+    if(p.numeracao&&String(p.numeracao).indexOf('{')!==-1){
+      console.log('🧹 Limpando tracking JSON inválido: #'+p.numero);
       p.numeracao=''; cleaned=true;
     }
     if(p.numLoja&&String(p.numLoja).toLowerCase().indexOf('object')!==-1){
