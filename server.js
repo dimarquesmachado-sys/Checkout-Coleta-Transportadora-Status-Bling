@@ -15,36 +15,6 @@ let accessToken  = process.env.BLING_ACCESS_TOKEN || '';
 let refreshToken = process.env.BLING_REFRESH_TOKEN || '';
 let tokenExpires = accessToken ? Date.now() + 50 * 60 * 1000 : 0;
 
-// ═══ MAGALU API ═══
-const MAGALU_CLIENT_ID     = process.env.MAGALU_CLIENT_ID || '';
-const MAGALU_CLIENT_SECRET = process.env.MAGALU_CLIENT_SECRET || '';
-const MAGALU_BASE          = 'https://api.magalu.com';
-const MAGALU_AUTH_URL      = 'https://id.magalu.com';
-
-let magaluAccessToken  = '';
-let magaluTokenExpires = 0;
-
-// ═══ MERCADO LIVRE API ═══
-const ML_APP_ID        = process.env.ML_APP_ID || '';
-const ML_CLIENT_SECRET = process.env.ML_CLIENT_SECRET || '';
-const ML_BASE          = 'https://api.mercadolibre.com';
-
-let mlAccessToken  = process.env.ML_ACCESS_TOKEN || '';
-let mlRefreshToken = process.env.ML_REFRESH_TOKEN || '';
-let mlTokenExpires = mlAccessToken ? Date.now() + 5 * 60 * 60 * 1000 : 0;
-let mlUserId       = process.env.ML_USER_ID || '';
-
-// ═══ TIKTOK SHOP API ═══
-const TIKTOK_APP_KEY    = process.env.TIKTOK_APP_KEY || '';
-const TIKTOK_APP_SECRET = process.env.TIKTOK_APP_SECRET || '';
-const TIKTOK_AUTH_URL   = 'https://auth.tiktok-shops.com';
-const TIKTOK_API_BASE   = 'https://open-api.tiktokglobalshop.com';
-
-let tiktokAccessToken  = process.env.TIKTOK_ACCESS_TOKEN || '';
-let tiktokRefreshToken = process.env.TIKTOK_REFRESH_TOKEN || '';
-let tiktokTokenExpires = tiktokAccessToken ? Date.now() + 5 * 60 * 60 * 1000 : 0;
-let tiktokShopId       = process.env.TIKTOK_SHOP_ID || '';
-
 function parseUsers() {
   const raw = process.env.USERS || 'admin:girassol123';
   return raw.split(',').map(u => {
@@ -128,410 +98,6 @@ app.get('/callback', async (req, res) => {
   } catch (e) {
     console.error('Erro callback:', e.message);
     res.send(`<h2 style="color:red">Erro: ${e.message}</h2><p>O código pode ter expirado. Acesse o Link de Convite novamente.</p>`);
-  }
-});
-
-// ═══ MAGALU API Key (client_credentials) ═══
-// Obtém token automaticamente usando API Key ID + Secret
-
-async function getMagaluToken() {
-  if (!MAGALU_CLIENT_ID || !MAGALU_CLIENT_SECRET) {
-    console.warn('⚠ MAGALU_CLIENT_ID ou MAGALU_CLIENT_SECRET não configurado');
-    return false;
-  }
-  
-  // Se token ainda é válido, não precisa renovar
-  if (magaluAccessToken && Date.now() < magaluTokenExpires - 60 * 1000) {
-    return true;
-  }
-  
-  try {
-    console.log('🔵 Obtendo token Magalu via client_credentials...');
-    const credentials = Buffer.from(`${MAGALU_CLIENT_ID}:${MAGALU_CLIENT_SECRET}`).toString('base64');
-    
-    const r = await fetch(`${MAGALU_AUTH_URL}/oauth/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${credentials}`,
-      },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        scope: 'open:order-order-seller:read open:order-delivery-seller:read',
-      }),
-    });
-    
-    const data = await r.json();
-    
-    if (!r.ok) {
-      console.error('❌ Magalu token erro:', JSON.stringify(data));
-      return false;
-    }
-    
-    magaluAccessToken = data.access_token;
-    magaluTokenExpires = Date.now() + (data.expires_in || 3600) * 1000 - (5 * 60 * 1000);
-    console.log('✅ Magalu token obtido! Expira em:', new Date(magaluTokenExpires).toLocaleTimeString('pt-BR'));
-    return true;
-  } catch (e) {
-    console.error('❌ Erro obter token Magalu:', e.message);
-    return false;
-  }
-}
-
-// Fetch com auth Magalu (obtém token automaticamente se necessário)
-async function magaluFetch(url, options = {}) {
-  const hasToken = await getMagaluToken();
-  if (!hasToken) {
-    throw new Error('Magalu: falha ao obter token. Verifique MAGALU_CLIENT_ID e MAGALU_CLIENT_SECRET.');
-  }
-  
-  const r = await fetch(url, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${magaluAccessToken}`,
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-  
-  // Se 401, tenta renovar token
-  if (r.status === 401) {
-    console.log('🔄 Token Magalu expirado, renovando...');
-    magaluAccessToken = '';
-    magaluTokenExpires = 0;
-    const renewed = await getMagaluToken();
-    if (renewed) return magaluFetch(url, options);
-  }
-  
-  return r;
-}
-
-// Status da conexão Magalu (não precisa mais de /magalu/auth)
-app.get('/magalu/status', async (req, res) => {
-  const hasCredentials = !!(MAGALU_CLIENT_ID && MAGALU_CLIENT_SECRET);
-  let connected = false;
-  let error = null;
-  
-  if (hasCredentials) {
-    try {
-      connected = await getMagaluToken();
-    } catch (e) {
-      error = e.message;
-    }
-  }
-  
-  res.json({
-    connected,
-    hasCredentials,
-    tokenExpires: magaluTokenExpires ? new Date(magaluTokenExpires).toISOString() : null,
-    error,
-  });
-});
-
-// ═══ MERCADO LIVRE OAuth e API ═══
-
-// PKCE helpers
-let mlCodeVerifier = '';
-
-function generateCodeVerifier() {
-  return crypto.randomBytes(32).toString('base64url');
-}
-
-function generateCodeChallenge(verifier) {
-  return crypto.createHash('sha256').update(verifier).digest('base64url');
-}
-
-// Redireciona para login do ML (com PKCE)
-app.get('/ml/auth', (req, res) => {
-  if (!ML_APP_ID) {
-    return res.send('<h2>Erro: ML_APP_ID não configurado no Render.</h2>');
-  }
-  
-  // Gera PKCE
-  mlCodeVerifier = generateCodeVerifier();
-  const codeChallenge = generateCodeChallenge(mlCodeVerifier);
-  
-  const redirectUri = `https://${req.get('host')}/ml/callback`;
-  const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${ML_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-  res.redirect(authUrl);
-});
-
-// Callback do OAuth ML (com PKCE)
-app.get('/ml/callback', async (req, res) => {
-  const code = req.query.code;
-  if (!code) return res.send('<h2>Erro: código não encontrado na URL.</h2>');
-  if (!ML_APP_ID || !ML_CLIENT_SECRET) {
-    return res.send('<h2>Erro: ML_APP_ID ou ML_CLIENT_SECRET não configurados.</h2>');
-  }
-  if (!mlCodeVerifier) {
-    return res.send('<h2>Erro: code_verifier não encontrado. Tente novamente em /ml/auth</h2>');
-  }
-  
-  try {
-    const redirectUri = `https://${req.get('host')}/ml/callback`;
-    const r = await fetch(`${ML_BASE}/oauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: ML_APP_ID,
-        client_secret: ML_CLIENT_SECRET,
-        code: code,
-        redirect_uri: redirectUri,
-        code_verifier: mlCodeVerifier,
-      }),
-    });
-    
-    // Limpa o verifier após uso
-    mlCodeVerifier = '';
-    
-    const data = await r.json();
-    if (!r.ok) throw new Error(JSON.stringify(data));
-
-    mlAccessToken  = data.access_token;
-    mlRefreshToken = data.refresh_token;
-    mlUserId       = String(data.user_id);
-    mlTokenExpires = Date.now() + (data.expires_in * 1000) - (5 * 60 * 1000);
-    
-    console.log('✅ ML tokens obtidos! User ID:', mlUserId);
-
-    // Persiste tokens no Render
-    await persistMLTokensToRender().catch(() => {});
-
-    res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-      <style>body{font-family:sans-serif;background:#0C0E13;color:#EBE9E2;padding:40px;max-width:700px;margin:0 auto}
-      h2{color:#FFE600} .ok{background:rgba(255,230,0,.13);border:1px solid rgba(255,230,0,.3);border-radius:8px;padding:14px;color:#FFE600;margin-top:20px}
-      </style></head><body>
-      <h2>🟡 Mercado Livre conectado!</h2>
-      <p>User ID: ${mlUserId}</p>
-      <div class="ok">✅ Pronto! O sistema agora pode buscar NF e status dos pedidos ML.<br><br>Pode fechar esta aba.</div>
-      </body></html>`);
-  } catch (e) {
-    console.error('Erro ML callback:', e.message);
-    res.send(`<h2 style="color:red">Erro ML: ${e.message}</h2>`);
-  }
-});
-
-// Persiste tokens ML no Render
-async function persistMLTokensToRender() {
-  if (!RENDER_SERVICE_ID || !RENDER_API_KEY) {
-    console.log('💾 ML tokens em memória (sem RENDER_API_KEY)');
-    return;
-  }
-  try {
-    const vars = [
-      ['ML_ACCESS_TOKEN', mlAccessToken],
-      ['ML_REFRESH_TOKEN', mlRefreshToken],
-      ['ML_USER_ID', mlUserId],
-    ];
-    for (const [key, value] of vars) {
-      if (!value) continue;
-      const r = await fetch(`https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${RENDER_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value }),
-      });
-      if (r.ok) console.log('✅ '+key+' persistido no Render!');
-    }
-  } catch(e) { console.warn('⚠ ML persist erro:', e.message); }
-}
-
-// Refresh token ML
-async function refreshMLToken() {
-  if (!mlRefreshToken || !ML_APP_ID || !ML_CLIENT_SECRET) {
-    console.warn('⚠ Sem refresh token ML ou credenciais');
-    return false;
-  }
-  try {
-    console.log('🔄 Renovando token ML...');
-    const r = await fetch(`${ML_BASE}/oauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        client_id: ML_APP_ID,
-        client_secret: ML_CLIENT_SECRET,
-        refresh_token: mlRefreshToken,
-      }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(JSON.stringify(data));
-
-    mlAccessToken  = data.access_token;
-    if (data.refresh_token) mlRefreshToken = data.refresh_token;
-    mlTokenExpires = Date.now() + (data.expires_in * 1000) - (5 * 60 * 1000);
-    console.log('✅ ML token renovado!');
-    await persistMLTokensToRender().catch(() => {});
-    return true;
-  } catch (e) {
-    console.error('❌ Erro renovar ML:', e.message);
-    return false;
-  }
-}
-
-// Fetch autenticado ML
-async function mlFetch(url, options = {}) {
-  if (!mlAccessToken) {
-    throw new Error('ML não autorizado. Acesse /ml/auth para conectar.');
-  }
-  if (Date.now() > mlTokenExpires - 60 * 1000) {
-    await refreshMLToken();
-  }
-  const r = await fetch(url, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${mlAccessToken}`,
-      'Accept': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-  if (r.status === 401) {
-    const ok = await refreshMLToken();
-    if (ok) return mlFetch(url, options);
-  }
-  return r;
-}
-
-// Status do ML
-app.get('/ml/status', (req, res) => {
-  res.json({
-    connected: !!mlAccessToken,
-    hasCredentials: !!(ML_APP_ID && ML_CLIENT_SECRET),
-    userId: mlUserId || null,
-    tokenExpires: mlTokenExpires ? new Date(mlTokenExpires).toISOString() : null,
-  });
-});
-
-// Busca pedido ML por ID (pack_id ou order_id)
-app.get('/ml/order/:orderId', requireAuth, async (req, res) => {
-  const { orderId } = req.params;
-  
-  if (!mlAccessToken) {
-    return res.status(401).json({ error: 'ML não conectado. Acesse /ml/auth', needsAuth: true });
-  }
-  
-  try {
-    // Tenta buscar como order primeiro
-    let r = await mlFetch(`${ML_BASE}/orders/${orderId}`);
-    
-    if (!r.ok && r.status === 404) {
-      // Pode ser um pack_id, busca diferente
-      r = await mlFetch(`${ML_BASE}/packs/${orderId}`);
-    }
-    
-    if (!r.ok) {
-      const err = await r.text();
-      return res.status(r.status).json({ error: err });
-    }
-    
-    const order = await r.json();
-    res.json(order);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Busca NF de um shipment ML
-app.get('/ml/shipment/:shipmentId/invoice', requireAuth, async (req, res) => {
-  const { shipmentId } = req.params;
-  
-  if (!mlAccessToken) {
-    return res.status(401).json({ error: 'ML não conectado', needsAuth: true });
-  }
-  
-  try {
-    const r = await mlFetch(`${ML_BASE}/shipments/${shipmentId}/fiscal_documents`);
-    
-    if (!r.ok) {
-      // Tenta endpoint alternativo
-      const r2 = await mlFetch(`${ML_BASE}/shipments/${shipmentId}`);
-      if (r2.ok) {
-        const shipment = await r2.json();
-        // Extrai dados fiscais do shipment se disponível
-        return res.json({
-          shipment_id: shipmentId,
-          fiscal_data: shipment.fiscal_data || null,
-          status: shipment.status,
-        });
-      }
-      return res.status(r.status).json({ error: 'NF não encontrada' });
-    }
-    
-    const data = await r.json();
-    res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Busca dados completos de um pedido ML pelo número da loja (numeroPedidoLoja do Bling)
-app.get('/ml/pedido/:numLoja', requireAuth, async (req, res) => {
-  const { numLoja } = req.params;
-  
-  if (!mlAccessToken || !mlUserId) {
-    return res.status(401).json({ error: 'ML não conectado', needsAuth: true });
-  }
-  
-  try {
-    // Busca pedidos recentes do seller
-    const r = await mlFetch(`${ML_BASE}/orders/search?seller=${mlUserId}&q=${numLoja}`);
-    
-    if (!r.ok) {
-      const err = await r.text();
-      return res.status(r.status).json({ error: err });
-    }
-    
-    const data = await r.json();
-    const orders = data.results || [];
-    
-    if (orders.length === 0) {
-      return res.json({ found: false, numLoja });
-    }
-    
-    // Pega o primeiro pedido encontrado
-    const order = orders[0];
-    
-    // Busca detalhes do shipment para pegar NF
-    let invoice = null;
-    let tracking = null;
-    let status = order.status;
-    
-    if (order.shipping && order.shipping.id) {
-      const shipR = await mlFetch(`${ML_BASE}/shipments/${order.shipping.id}`);
-      if (shipR.ok) {
-        const shipment = await shipR.json();
-        tracking = shipment.tracking_number || null;
-        status = shipment.status || order.status;
-        
-        // Busca NF do shipment
-        const nfR = await mlFetch(`${ML_BASE}/shipments/${order.shipping.id}/fiscal_documents`);
-        if (nfR.ok) {
-          const nfData = await nfR.json();
-          if (nfData && nfData.length > 0) {
-            invoice = {
-              numero: nfData[0].fiscal_document_number,
-              chave: nfData[0].fiscal_document_key,
-              serie: nfData[0].fiscal_document_series,
-            };
-          }
-        }
-      }
-    }
-    
-    res.json({
-      found: true,
-      order_id: order.id,
-      pack_id: order.pack_id,
-      status: status,
-      tracking: tracking,
-      invoice: invoice,
-      cancelled: status === 'cancelled',
-      shipped: ['shipped', 'delivered'].includes(status),
-    });
-  } catch (e) {
-    console.error('ML pedido erro:', e.message);
-    res.status(500).json({ error: e.message });
   }
 });
 
@@ -666,7 +232,7 @@ app.get('/me', requireAuth, (req, res) => res.json({ usuario: req.user }));
 app.get('/nf-pedido/:blingId', requireAuth, async (req, res) => {
   const { blingId } = req.params;
   const pedidoId = parseInt(blingId);
-  const TOLERANCE = 5000; // NF criada até 5000 IDs depois do pedido
+  const TOLERANCE = 2000; // NF criada até 2000 IDs depois do pedido
   const MAX_PAGES = 10;
   try {
     for (let pagina = 1; pagina <= MAX_PAGES; pagina++) {
@@ -692,350 +258,6 @@ app.get('/nf-pedido/:blingId', requireAuth, async (req, res) => {
     }
     res.json({ numero: '', chave: '' });
   } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ═══ NF DIRETA POR ID ═══
-// Busca NF diretamente pelo ID (muito mais rápido que paginação)
-app.get('/nfe-direct/:nfeId', requireAuth, async (req, res) => {
-  const { nfeId } = req.params;
-  try {
-    const url = `${BLING_BASE}/nfe/${nfeId}`;
-    const r = await blingFetch(url);
-    if (!r.ok) {
-      return res.json({ numero: '', chave: '' });
-    }
-    const d = await r.json().catch(() => ({}));
-    const nfe = d.data || d;
-    return res.json({ 
-      numero: nfe.numero || '', 
-      chave: nfe.chaveAcesso || nfe.chave || '', 
-      id: nfe.id || nfeId 
-    });
-  } catch(e) {
-    console.error('❌ Erro ao buscar NF direta:', e.message);
-    res.json({ numero: '', chave: '' });
-  }
-});
-
-// ═══ MAGALU TRACKING ═══
-// Busca tracking de um pedido Magalu pelo código do pedido no marketplace
-app.get('/magalu/tracking/:orderCode', requireAuth, async (req, res) => {
-  const { orderCode } = req.params;
-  console.log('🔵 Buscando tracking Magalu para pedido:', orderCode);
-  
-  if (!MAGALU_CLIENT_ID || !MAGALU_CLIENT_SECRET) {
-    return res.status(401).json({ 
-      error: 'Magalu não configurado. Configure MAGALU_CLIENT_ID e MAGALU_CLIENT_SECRET no Render.',
-      needsAuth: true 
-    });
-  }
-
-  try {
-    // Busca entregas filtrando pelo código do pedido
-    const url = `${MAGALU_BASE}/seller/v1/deliveries?code=${orderCode}&_limit=10`;
-    const r = await magaluFetch(url);
-    
-    if (!r.ok) {
-      const err = await r.text();
-      console.error('❌ Magalu API erro:', r.status, err.substring(0, 200));
-      return res.status(r.status).json({ error: 'Erro API Magalu', details: err.substring(0, 200) });
-    }
-
-    const data = await r.json();
-    const deliveries = data.results || data.data || [];
-    
-    console.log('🔵 Magalu entregas encontradas:', deliveries.length);
-    
-    if (deliveries.length === 0) {
-      // Tenta buscar pedido direto
-      const orderUrl = `${MAGALU_BASE}/seller/v1/orders?code=${orderCode}&_limit=5`;
-      const orderR = await magaluFetch(orderUrl);
-      if (orderR.ok) {
-        const orderData = await orderR.json();
-        const orders = orderData.results || [];
-        if (orders.length > 0) {
-          // Pega ID do pedido e busca entregas dele
-          const orderId = orders[0].id;
-          const delUrl = `${MAGALU_BASE}/seller/v1/deliveries?order_id=${orderId}&_limit=10`;
-          const delR = await magaluFetch(delUrl);
-          if (delR.ok) {
-            const delData = await delR.json();
-            const dels = delData.results || [];
-            if (dels.length > 0) {
-              return res.json(extractMagaluTracking(dels[0]));
-            }
-          }
-        }
-      }
-      return res.json({ tracking: '', found: false });
-    }
-
-    // Extrai tracking da primeira entrega
-    res.json(extractMagaluTracking(deliveries[0]));
-  } catch(e) {
-    console.error('❌ Magalu tracking erro:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Extrai tracking de uma entrega Magalu
-function extractMagaluTracking(delivery) {
-  // Campos possíveis onde o tracking pode estar
-  const tracking = delivery.tracking_code 
-    || delivery.trackingCode
-    || delivery.shipping?.tracking_code
-    || delivery.shipping?.trackingCode
-    || (delivery.shipments && delivery.shipments[0]?.tracking_code)
-    || (delivery.packages && delivery.packages[0]?.tracking_code)
-    || '';
-  
-  console.log('🔵 Magalu tracking extraído:', tracking, '| delivery id:', delivery.id);
-  
-  return {
-    tracking: tracking,
-    deliveryId: delivery.id,
-    status: delivery.status,
-    found: !!tracking
-  };
-}
-
-// Busca todas as entregas Magalu recentes (para debug)
-app.get('/magalu/deliveries', requireAuth, async (req, res) => {
-  if (!MAGALU_CLIENT_ID || !MAGALU_CLIENT_SECRET) {
-    return res.status(401).json({ error: 'Magalu não configurado', needsAuth: true });
-  }
-  try {
-    const url = `${MAGALU_BASE}/seller/v1/deliveries?_limit=20`;
-    const r = await magaluFetch(url);
-    if (!r.ok) {
-      const err = await r.text();
-      return res.status(r.status).json({ error: err });
-    }
-    const data = await r.json();
-    res.json(data);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Busca dados completos de um pedido Magalu pelo código (para detectar cancelados)
-app.get('/magalu/pedido/:orderCode', requireAuth, async (req, res) => {
-  const { orderCode } = req.params;
-  
-  if (!MAGALU_CLIENT_ID || !MAGALU_CLIENT_SECRET) {
-    return res.status(401).json({ error: 'Magalu não configurado', needsAuth: true });
-  }
-  
-  try {
-    // Busca pedido pelo código
-    const orderUrl = `${MAGALU_BASE}/seller/v1/orders?code=${orderCode}&_limit=5`;
-    const orderR = await magaluFetch(orderUrl);
-    
-    if (!orderR.ok) {
-      const err = await orderR.text();
-      return res.status(orderR.status).json({ error: err });
-    }
-    
-    const orderData = await orderR.json();
-    const orders = orderData.results || orderData.data || [];
-    
-    if (orders.length === 0) {
-      return res.json({ found: false, orderCode });
-    }
-    
-    const order = orders[0];
-    const status = (order.status || '').toLowerCase();
-    
-    // Status de cancelado no Magalu: cancelled, canceled, cancelled_by_seller, cancelled_by_buyer
-    const cancelledStatuses = ['cancelled', 'canceled', 'cancelled_by_seller', 'cancelled_by_buyer', 'cancellation_requested'];
-    const isCancelled = cancelledStatuses.some(s => status.includes(s));
-    
-    console.log(`🔵 Magalu pedido ${orderCode}: status=${status}, cancelled=${isCancelled}`);
-    
-    res.json({
-      found: true,
-      orderId: order.id,
-      orderCode: order.code,
-      status: status,
-      cancelled: isCancelled,
-      shipped: ['shipped', 'delivered', 'in_transit', 'out_for_delivery'].some(s => status.includes(s)),
-    });
-  } catch (e) {
-    console.error('❌ Magalu pedido erro:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ═══ TIKTOK SHOP API ROUTES ═══
-
-// Gera assinatura para TikTok API
-function generateTiktokSign(path, params, timestamp) {
-  const sortedKeys = Object.keys(params).sort();
-  let signString = TIKTOK_APP_SECRET + path;
-  for (const key of sortedKeys) {
-    signString += key + params[key];
-  }
-  signString += TIKTOK_APP_SECRET;
-  return crypto.createHmac('sha256', TIKTOK_APP_SECRET).update(signString).digest('hex');
-}
-
-// Redireciona para login do TikTok Shop
-app.get('/tiktok/auth', (req, res) => {
-  if (!TIKTOK_APP_KEY) {
-    return res.send('<h2>Erro: TIKTOK_APP_KEY não configurado no Render.</h2>');
-  }
-  const state = crypto.randomBytes(16).toString('hex');
-  const redirectUri = `https://${req.get('host')}/tiktok/callback`;
-  const authUrl = `${TIKTOK_AUTH_URL}/oauth/authorize?app_key=${TIKTOK_APP_KEY}&state=${state}`;
-  res.redirect(authUrl);
-});
-
-// Callback do OAuth TikTok
-app.get('/tiktok/callback', async (req, res) => {
-  const code = req.query.code;
-  if (!code) return res.send('<h2>Erro: código não encontrado na URL.</h2>');
-  if (!TIKTOK_APP_KEY || !TIKTOK_APP_SECRET) {
-    return res.send('<h2>Erro: TIKTOK_APP_KEY ou TIKTOK_APP_SECRET não configurados.</h2>');
-  }
-  
-  try {
-    const timestamp = Math.floor(Date.now() / 1000);
-    const path = '/api/v2/token/get';
-    const params = {
-      app_key: TIKTOK_APP_KEY,
-      app_secret: TIKTOK_APP_SECRET,
-      auth_code: code,
-      grant_type: 'authorized_code',
-    };
-    
-    const queryString = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
-    const url = `${TIKTOK_AUTH_URL}${path}?${queryString}`;
-    
-    const r = await fetch(url, { method: 'GET' });
-    const data = await r.json();
-    
-    if (data.code !== 0) {
-      throw new Error(JSON.stringify(data));
-    }
-    
-    const tokenData = data.data;
-    tiktokAccessToken  = tokenData.access_token;
-    tiktokRefreshToken = tokenData.refresh_token;
-    tiktokTokenExpires = Date.now() + (tokenData.access_token_expire_in * 1000) - (5 * 60 * 1000);
-    
-    // Pega shop_id da lista de shops autorizados
-    if (tokenData.seller_base_region) {
-      tiktokShopId = tokenData.seller_base_region;
-    }
-    
-    console.log('✅ TikTok tokens obtidos!');
-    
-    // Persiste tokens no Render
-    await persistTiktokTokensToRender().catch(() => {});
-    
-    res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-      <style>body{font-family:sans-serif;background:#0C0E13;color:#EBE9E2;padding:40px;max-width:700px;margin:0 auto}
-      h2{color:#00F2EA} .ok{background:rgba(0,242,234,.13);border:1px solid rgba(0,242,234,.3);border-radius:8px;padding:14px;color:#00F2EA;margin-top:20px}
-      </style></head><body>
-      <h2>🎵 TikTok Shop conectado!</h2>
-      <div class="ok">✅ Pronto! O sistema agora pode verificar status dos pedidos TikTok.<br><br>Pode fechar esta aba.</div>
-      </body></html>`);
-  } catch (e) {
-    console.error('Erro TikTok callback:', e.message);
-    res.send(`<h2 style="color:red">Erro TikTok: ${e.message}</h2>`);
-  }
-});
-
-// Persiste tokens TikTok no Render
-async function persistTiktokTokensToRender() {
-  if (!RENDER_SERVICE_ID || !RENDER_API_KEY) return;
-  try {
-    for (const [key, value] of [
-      ['TIKTOK_ACCESS_TOKEN', tiktokAccessToken],
-      ['TIKTOK_REFRESH_TOKEN', tiktokRefreshToken],
-      ['TIKTOK_SHOP_ID', tiktokShopId]
-    ]) {
-      if (!value) continue;
-      await fetch(`https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${key}`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${RENDER_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value }),
-      });
-    }
-    console.log('✅ TikTok tokens persistidos no Render!');
-  } catch (e) {
-    console.error('❌ Erro persistir TikTok:', e.message);
-  }
-}
-
-// Status TikTok
-app.get('/tiktok/status', (req, res) => {
-  res.json({
-    connected: !!tiktokAccessToken,
-    hasCredentials: !!(TIKTOK_APP_KEY && TIKTOK_APP_SECRET),
-    shopId: tiktokShopId || null,
-    tokenExpires: tiktokTokenExpires ? new Date(tiktokTokenExpires).toISOString() : null,
-  });
-});
-
-// Busca pedido TikTok para verificar status (cancelado)
-app.get('/tiktok/pedido/:orderCode', requireAuth, async (req, res) => {
-  const { orderCode } = req.params;
-  
-  if (!tiktokAccessToken) {
-    return res.status(401).json({ error: 'TikTok não conectado. Acesse /tiktok/auth', needsAuth: true });
-  }
-  
-  try {
-    const timestamp = Math.floor(Date.now() / 1000);
-    const path = '/order/202309/orders';
-    
-    // Monta parâmetros
-    const params = {
-      app_key: TIKTOK_APP_KEY,
-      timestamp: String(timestamp),
-      shop_cipher: tiktokShopId,
-      order_id: orderCode,
-    };
-    
-    const sign = generateTiktokSign(path, params, timestamp);
-    params.sign = sign;
-    params.access_token = tiktokAccessToken;
-    
-    const queryString = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
-    const url = `${TIKTOK_API_BASE}${path}?${queryString}`;
-    
-    const r = await fetch(url);
-    const data = await r.json();
-    
-    if (data.code !== 0) {
-      // Tenta buscar por order_sn
-      return res.json({ found: false, orderCode, error: data.message });
-    }
-    
-    const orders = data.data?.orders || [];
-    if (orders.length === 0) {
-      return res.json({ found: false, orderCode });
-    }
-    
-    const order = orders[0];
-    const status = (order.order_status || '').toLowerCase();
-    
-    // Status de cancelado no TikTok: CANCEL, CANCELLED
-    const isCancelled = status.includes('cancel');
-    
-    console.log(`🎵 TikTok pedido ${orderCode}: status=${status}, cancelled=${isCancelled}`);
-    
-    res.json({
-      found: true,
-      orderId: order.order_id,
-      status: status,
-      cancelled: isCancelled,
-    });
-  } catch (e) {
-    console.error('❌ TikTok pedido erro:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1324,6 +546,85 @@ async function supabaseGet(fileName) {
   }
 }
 
+// ─── Persistência de scans no Supabase ─────────────────────────────────────
+async function saveScansToSupabase(scans) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return;
+  try {
+    const jsonData = JSON.stringify(scans);
+    const buffer = Buffer.from(jsonData, 'utf8');
+    await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/sync_scans.json`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'x-upsert': 'true'
+      },
+      body: buffer
+    });
+    console.log('💾 Scans salvos no Supabase:', scans.length);
+  } catch(e) {
+    console.error('❌ Erro ao salvar scans no Supabase:', e.message);
+  }
+}
+
+async function loadScansFromSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return [];
+  try {
+    const url = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/sync_scans.json`;
+    const r = await fetch(url);
+    if (!r.ok) {
+      console.log('📂 Nenhum scan salvo no Supabase ainda');
+      return [];
+    }
+    const scans = await r.json();
+    console.log('📥 Scans carregados do Supabase:', scans.length);
+    return scans;
+  } catch(e) {
+    console.error('❌ Erro ao carregar scans do Supabase:', e.message);
+    return [];
+  }
+}
+
+async function savePackagesToSupabase(packages) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return;
+  try {
+    const jsonData = JSON.stringify(packages);
+    const buffer = Buffer.from(jsonData, 'utf8');
+    await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/sync_packages.json`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'x-upsert': 'true'
+      },
+      body: buffer
+    });
+    console.log('💾 Packages salvos no Supabase:', packages.length);
+  } catch(e) {
+    console.error('❌ Erro ao salvar packages no Supabase:', e.message);
+  }
+}
+
+async function loadPackagesFromSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return [];
+  try {
+    const url = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/sync_packages.json`;
+    const r = await fetch(url);
+    if (!r.ok) return [];
+    const packages = await r.json();
+    console.log('📥 Packages carregados do Supabase:', packages.length);
+    return packages;
+  } catch(e) {
+    return [];
+  }
+}
+
+// Carrega dados persistidos na inicialização
+(async () => {
+  sharedScans = await loadScansFromSupabase();
+  sharedPackages = await loadPackagesFromSupabase();
+})();
+
 // Estado de quem está fazendo expedição agora
 const activeUsers = new Map(); // user → {user, mkt, ts}
 
@@ -1342,18 +643,20 @@ app.post('/sync/active', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/sync/packages', requireAuth, (req, res) => {
+app.post('/sync/packages', requireAuth, async (req, res) => {
   const { packages } = req.body;
   if(Array.isArray(packages)){
     sharedPackages = packages;
+    savePackagesToSupabase(packages); // Persiste no Supabase (async, não bloqueia)
   }
   res.json({ ok: true });
 });
 
-app.post('/sync/scans', requireAuth, (req, res) => {
+app.post('/sync/scans', requireAuth, async (req, res) => {
   const { scans } = req.body;
   if(Array.isArray(scans)){
     sharedScans = scans;
+    saveScansToSupabase(scans); // Persiste no Supabase (async, não bloqueia)
   }
   res.json({ ok: true });
 });
@@ -1394,12 +697,8 @@ app.get('/photos/lote/:loteId/:idx', requireAuth, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
-  console.log(`📦 Bling Client ID: ${CLIENT_ID ? '✓ configurado' : '✗ NÃO configurado'}`);
-  console.log(`🔑 Bling Access Token: ${accessToken ? '✓ presente' : '✗ ausente — acesse /callback'}`);
-  console.log(`🔄 Bling Refresh Token: ${refreshToken ? '✓ presente' : '✗ ausente'}`);
-  console.log(`🔵 Magalu Client ID: ${MAGALU_CLIENT_ID ? '✓ configurado' : '✗ NÃO configurado'}`);
-  console.log(`🔵 Magalu: ${MAGALU_CLIENT_ID && MAGALU_CLIENT_SECRET ? '✓ credenciais OK (token automático)' : '✗ configure MAGALU_CLIENT_ID e MAGALU_CLIENT_SECRET'}`);
-  console.log(`🎵 TikTok App Key: ${TIKTOK_APP_KEY ? '✓ configurado' : '✗ NÃO configurado'}`);
-  console.log(`🎵 TikTok Access Token: ${tiktokAccessToken ? '✓ presente' : '✗ ausente — acesse /tiktok/auth'}`);
+  console.log(`📦 Client ID: ${CLIENT_ID ? '✓ configurado' : '✗ NÃO configurado'}`);
+  console.log(`🔑 Access Token: ${accessToken ? '✓ presente' : '✗ ausente — acesse /callback'}`);
+  console.log(`🔄 Refresh Token: ${refreshToken ? '✓ presente' : '✗ ausente'}`);
   console.log(`👥 Usuários: ${parseUsers().map(u => u.nome).join(', ')}`);
 });
