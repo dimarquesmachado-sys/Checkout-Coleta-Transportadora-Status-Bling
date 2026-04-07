@@ -1441,7 +1441,8 @@ function pullFromBling(){
       // Propaga NF só se for do mesmo dia (evita NF errada de dia anterior)
       if(ex.nf&&ex.date===today) p.nf=ex.nf;
       // ⚠ DEVOLUÇÃO: estava coletado/problema mas voltou ao Bling como VERIFICADO (24)
-      if((ex.status==='coletado'||ex.status==='problema') && p.blingStatus===24){
+      // SÓ reseta se for de dia ANTERIOR — se foi bipado HOJE, mantém o status local
+      if((ex.status==='coletado'||ex.status==='problema') && p.blingStatus===24 && ex.date!==today){
         p.status='pendente'; p.colT=null;
         console.log('↩ Devolvido #'+p.numero+' (era '+ex.status+', data anterior: '+ex.date+') → pendente hoje');
         toast('↩ '+p.numero+' devolvido — volta para expedição!','warn');
@@ -2223,12 +2224,19 @@ function onFotoSelecionada(input){
       btn.textContent='✓ 3 fotos tiradas';
       document.getElementById('fotoAlert').style.display='none';
     } else {
-        var proxima=fotosVeiculo.length+1;
+      // Atualiza botão
+      var proxima=fotosVeiculo.length+1;
       btn.innerHTML='📷 Tirar Foto '+proxima+' de 3';
+      // ⚡ ABRE CÂMERA AUTOMATICAMENTE para próxima foto
+      setTimeout(function(){
+        abrirCameraFoto();
+      }, 400);
     }
   };
   reader.readAsDataURL(file);
   input.value='';
+  // Remove input do DOM após uso
+  setTimeout(function(){if(input.parentNode) input.parentNode.removeChild(input);}, 100);
 }
 function renderFotosVeiculo(){
   document.getElementById('veiculoFotos').innerHTML=fotosVeiculo.map(function(f,i){
