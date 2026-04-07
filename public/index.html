@@ -1756,7 +1756,7 @@ function renderPkgList(){
       '<div class="pkg-dest">'+p.destinatario+'</div>'+
       '</div>'+
       '<span class="pkg-badge '+(isCancelado?'':'')+(ativo?'b-scan':'b-pend')+'">'+(isCancelado?'✗':(ativo?'✓':'—'))+'</span>'+
-      (ativo&&!isCancelado?'<button class="unscan-btn" data-et="'+p.etiqueta+'" data-bid="'+p.blingId+'" onclick="cancelarScan(this.dataset.et, this.dataset.bid)" title="Cancelar bipagem">✕</button>':'')+
+      (ativo&&!isCancelado&&!p.loteId?'<button class="unscan-btn" data-et="'+p.etiqueta+'" data-bid="'+p.blingId+'" onclick="cancelarScan(this.dataset.et, this.dataset.bid)" title="Cancelar bipagem">✕</button>':'')+
       '</div>';
   }).join('');
   renderProgress();
@@ -1884,16 +1884,27 @@ function handleScan(rawCode,photo){
   var code=rawCode.trim().replace(/\s/g,'');
 
   // ── Formato 1: JSON ML antigo {"id":"12345","t":"lm"}
+  var isMagaluQR=false;
   try{
     var qr=JSON.parse(rawCode);
     if(qr.id) code=String(qr.id).trim().replace(/\s/g,'');
-    // ── Formato 1b: QR MAGALU {"EXTERNAL_GROUPER_CODE":"1525...","TAG_CODE":"191152999-01",...}
+    // ── Formato 1b: QR MAGALU {"EXTERNAL_GROUPER_CODE":"152627...DA74-4933-...","TAG_CODE":"191152999-01",...}
     if(qr.EXTERNAL_GROUPER_CODE){
-      code=String(qr.EXTERNAL_GROUPER_CODE).trim().replace(/\s/g,'');
-      console.log('🔵 MAGALU QR detectado: EXTERNAL_GROUPER_CODE='+code);
-    } else if(qr.TAG_CODE){
+      // Extrai APENAS a parte numérica inicial (remove UUID que vem depois)
+      var extCode=String(qr.EXTERNAL_GROUPER_CODE);
+      var numericPart=extCode.match(/^(\d+)/);
+      if(numericPart){
+        code=numericPart[1];
+      } else {
+        code=extCode.replace(/[^0-9]/g,'');
+      }
+      isMagaluQR=true;
+      console.log('🔵 MAGALU QR detectado: EXTERNAL_GROUPER_CODE='+qr.EXTERNAL_GROUPER_CODE+' → código='+code);
+    }
+    if(qr.TAG_CODE && !isMagaluQR){
       // TAG_CODE tem hífen (191152999-01), remove para matching
       code=String(qr.TAG_CODE).replace(/-/g,'').trim();
+      isMagaluQR=true;
       console.log('🔵 MAGALU QR detectado: TAG_CODE='+code);
     }
   }catch(e){}
@@ -1901,6 +1912,7 @@ function handleScan(rawCode,photo){
   // ── Formato 1c: Código de barras MAGALU (TAG_CODE sem JSON): 191152999-01
   if(code.match(/^\d{9}-\d{2}$/)){
     code=code.replace(/-/g,'');
+    isMagaluQR=true;
     console.log('🔵 MAGALU barcode detectado: '+code);
   }
 
@@ -2001,19 +2013,22 @@ function handleScan(rawCode,photo){
     beepError(); return;
   }
   if(!pkg){
-    // ═══ FALLBACK MAGALU ═══
+    // ═══ FALLBACK MAGALU (inclui FLEX) ═══
     // Magalu não tem tracking na API Bling, então oferece associação manual
-    // Só entra no fallback após 2 segundos e apenas para pedidos SEM tracking
+    // Funciona tanto no card Magalu quanto no card FLEX
     // SEMPRE pergunta qual pedido - nunca associa automaticamente
-    if(activeMkt==='magalu'){
+    var isMagaluContext = (activeMkt==='magalu') || (activeMkt==='flex' && isMagaluQR);
+    if(isMagaluContext){
       var magaluPendentes=packages.filter(function(p){
-        return p.mkt==='magalu'
-          && p.status==='pendente'
-          && !p.urgente
-          && !p.numeracao  // SEM tracking
-          && colSession.indexOf(p.etiqueta)===-1; // NÃO bipado na sessão
+        if(p.mkt!=='magalu') return false;
+        if(p.status!=='pendente') return false;
+        if(p.numeracao) return false; // Já tem tracking
+        if(colSession.indexOf(p.etiqueta)!==-1) return false; // Já bipado
+        // No card FLEX, só mostra urgentes. No card Magalu, só não-urgentes.
+        if(activeMkt==='flex') return p.urgente;
+        return !p.urgente;
       });
-      console.log('🔵 MAGALU fallback: '+magaluPendentes.length+' pendentes sem tracking, código='+code);
+      console.log('🔵 MAGALU fallback ('+activeMkt+'): '+magaluPendentes.length+' pendentes sem tracking, código='+code);
       
       if(magaluPendentes.length>=1){
         // Aguarda 2s e mostra modal para escolher (SEMPRE pergunta)
@@ -2024,7 +2039,9 @@ function handleScan(rawCode,photo){
           document.getElementById('camStatus').textContent='Aponte para o código de barras';
           // Re-verifica pendentes
           var stillPending=packages.filter(function(p){
-            return p.mkt==='magalu'&&p.status==='pendente'&&!p.urgente&&!p.numeracao&&colSession.indexOf(p.etiqueta)===-1;
+            if(p.mkt!=='magalu'||p.status!=='pendente'||p.numeracao||colSession.indexOf(p.etiqueta)!==-1) return false;
+            if(activeMkt==='flex') return p.urgente;
+            return !p.urgente;
           });
           if(stillPending.length>=1){
             showMagaluPicker(stillPending, code, photo);
@@ -2568,7 +2585,14 @@ function finalizeColeta(){
         scans[i].loteId=loteId; break;
       }
     }
+    // Marca loteId também no package (para bloquear botão desfazer)
+    for(var j=0;j<packages.length;j++){
+      if(packages[j].etiqueta===chave&&packages[j].date===todayStr()){
+        packages[j].loteId=loteId; break;
+      }
+    }
   });
+  sv('expv5_pkgs',packages); // Salva packages com loteId
   scans.unshift({tipo:'lote',id:loteId,mkt:activeMkt,date:todayStr(),time:now,qtd:qtdEntregues,problemas:problemaPkgs.length,obs:obs,fotosVeiculo:fotosVeiculo.slice()});
   sv('expv5_scans',scans);
   sv('expv5_scans',scans); // salva loteId nos scans antes de sync
