@@ -642,6 +642,7 @@ var packages = [], scans = [], sessionToken = '', currentUser = '';
 var colSession = [], activeMkt = '';
 var fotosVeiculo = [], problemaPkgs = [];
 var camStream = null, barcodeDetector = null, scanning = false, scanPaused = false;
+var cameraFotosAberta = false; // flag: câmera de fotos do veículo está aberta
 var lastCode = '', lastCodeAt = 0;
 var encerrandoParcial = false; // flag: encerramento parcial ativo
 var lastPullAt = 0;        // timestamp do último pullFromBling
@@ -1820,7 +1821,8 @@ function startCamera(){
 }
 function scanLoop(){
   if(!scanning||!barcodeDetector) return;
-  if(scanPaused){requestAnimationFrame(scanLoop);return;}
+  // Não processa se câmera de fotos do veículo está aberta
+  if(scanPaused||cameraFotosAberta){requestAnimationFrame(scanLoop);return;}
   var v=document.getElementById('camVideo');
   barcodeDetector.detect(v).then(function(codes){
     if(codes.length>0){
@@ -1989,22 +1991,59 @@ function handleScan(rawCode,photo){
   if(!pkg){
     // ═══ FALLBACK MAGALU ═══
     // Magalu não tem tracking na API Bling, então oferece associação manual
+    // Só entra no fallback após 2 segundos e apenas para pedidos SEM tracking
     if(activeMkt==='magalu'){
       var magaluPendentes=packages.filter(function(p){
-        return p.mkt==='magalu'&&p.date===today&&p.status==='pendente'&&!p.urgente;
+        return p.mkt==='magalu'
+          && p.status==='pendente'
+          && !p.urgente
+          && !p.numeracao  // SEM tracking
+          && colSession.indexOf(p.etiqueta)===-1; // NÃO bipado na sessão
       });
-      console.log('🔵 MAGALU fallback: '+magaluPendentes.length+' pendentes, código='+code);
+      console.log('🔵 MAGALU fallback: '+magaluPendentes.length+' pendentes sem tracking, código='+code);
       
       if(magaluPendentes.length===1){
-        // Apenas 1 pedido Magalu pendente: associa automaticamente
-        pkg=magaluPendentes[0];
-        pkg.numeracao=code; // Salva o código da etiqueta para bipagens futuras
-        sv('expv5_pkgs',packages);
-        console.log('🔵 MAGALU auto-associado: '+pkg.numero+' → '+code);
-        toast('🔵 Associado: '+pkg.numero,'ok');
+        // Apenas 1 pedido Magalu pendente sem tracking: aguarda 2s e associa
+        scanPaused=true;
+        document.getElementById('camStatus').textContent='Verificando...';
+        setTimeout(function(){
+          scanPaused=false;
+          document.getElementById('camStatus').textContent='Aponte para o código de barras';
+          // Re-verifica se ainda é o único pendente
+          var stillPending=packages.filter(function(p){
+            return p.mkt==='magalu'&&p.status==='pendente'&&!p.urgente&&!p.numeracao&&colSession.indexOf(p.etiqueta)===-1;
+          });
+          if(stillPending.length===1){
+            var pkgAssoc=stillPending[0];
+            pkgAssoc.numeracao=code;
+            sv('expv5_pkgs',packages);
+            console.log('🔵 MAGALU auto-associado: '+pkgAssoc.numero+' → '+code);
+            toast('🔵 Associado: '+pkgAssoc.numero,'ok');
+            // Continua o processamento do scan
+            handleScan(code, photo);
+          }
+        }, 2000);
+        return;
       } else if(magaluPendentes.length>1){
-        // Mais de 1 pedido: mostra modal para escolher
-        showMagaluPicker(magaluPendentes, code, photo);
+        // Mais de 1 pedido: aguarda 2s e mostra modal para escolher
+        scanPaused=true;
+        document.getElementById('camStatus').textContent='Verificando...';
+        setTimeout(function(){
+          scanPaused=false;
+          document.getElementById('camStatus').textContent='Aponte para o código de barras';
+          // Re-verifica pendentes
+          var stillPending=packages.filter(function(p){
+            return p.mkt==='magalu'&&p.status==='pendente'&&!p.urgente&&!p.numeracao&&colSession.indexOf(p.etiqueta)===-1;
+          });
+          if(stillPending.length>1){
+            showMagaluPicker(stillPending, code, photo);
+          } else if(stillPending.length===1){
+            var pkgAssoc=stillPending[0];
+            pkgAssoc.numeracao=code;
+            sv('expv5_pkgs',packages);
+            handleScan(code, photo);
+          }
+        }, 2000);
         return;
       }
     }
@@ -2243,6 +2282,9 @@ function abrirCameraFoto(){
   var overlay = document.getElementById('cameraOverlay');
   var video = document.getElementById('cameraVideo');
   
+  // Bloqueia scan de etiquetas enquanto tira fotos do veículo
+  cameraFotosAberta = true;
+  
   // Atualiza contador
   atualizarCameraUI();
   
@@ -2270,6 +2312,8 @@ function abrirCameraFoto(){
 }
 
 function abrirCameraFallback(){
+  // Bloqueia scan de etiquetas
+  cameraFotosAberta = true;
   var inp=document.createElement('input');
   inp.type='file'; inp.accept='image/*'; inp.capture='environment';
   inp.style.display='none';
@@ -2280,7 +2324,11 @@ function abrirCameraFallback(){
 
 function onFotoSelecionadaFallback(input){
   var file=input.files[0];
-  if(!file) return;
+  if(!file){
+    // Usuário cancelou - libera flag se não tem fotos pendentes
+    if(fotosVeiculo.length >= 3) cameraFotosAberta = false;
+    return;
+  }
   var reader=new FileReader();
   reader.onload=function(e){
     fotosVeiculo.push(e.target.result);
@@ -2289,6 +2337,10 @@ function onFotoSelecionadaFallback(input){
     toast('Foto '+fotosVeiculo.length+'/3 salva ✓','ok');
     if(fotosVeiculo.length<3){
       setTimeout(function(){abrirCameraFallback();}, 400);
+    } else {
+      // Completou 3 fotos - libera flag
+      cameraFotosAberta = false;
+      toast('✅ 3 fotos capturadas!','ok');
     }
   };
   reader.readAsDataURL(file);
@@ -2362,6 +2414,9 @@ function fecharCameraVeiculo(){
   }
   video.srcObject = null;
   overlay.classList.remove('show');
+  
+  // Libera scan de etiquetas novamente
+  cameraFotosAberta = false;
 }
 
 function atualizarBotaoFoto(){
