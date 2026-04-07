@@ -44,6 +44,7 @@ html,body{height:100%;font-family:var(--sans);background:var(--bg);color:var(--t
 /* APP */
 .app{display:none;flex-direction:column;min-height:100vh}
 .app.show{display:flex}
+.main{padding-bottom:80px}
 
 /* HEADER */
 header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
@@ -223,7 +224,8 @@ header{background:var(--s1);border-bottom:1px solid var(--b1);padding:12px 16px;
 .dia-section-lbl{font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--tm);margin:16px 0 8px}
 
 /* BOTTOM NAV */
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--s1);border-top:1px solid var(--b1);display:flex;z-index:200;padding-bottom:env(safe-area-inset-bottom)}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--s1);border-top:1px solid var(--b1);display:flex;z-index:200;padding-bottom:env(safe-area-inset-bottom);padding-bottom:max(env(safe-area-inset-bottom),8px)}
+@media (display-mode: standalone){.bottom-nav{padding-bottom:max(env(safe-area-inset-bottom),16px)}}
 .nav-btn{flex:1;padding:10px 4px;background:none;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--tm);font-size:10px;font-family:var(--sans);position:relative}
 .nav-btn.active{color:var(--gr)}
 .nav-icon{font-size:22px;line-height:1}
