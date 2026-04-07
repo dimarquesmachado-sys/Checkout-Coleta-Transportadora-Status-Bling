@@ -1612,9 +1612,9 @@ function handleScan(rawCode,photo){
     beepError(); return;
   }
   if(!pkg){
-    // ═══ FALLBACK MAGALU ═══
-    var isMagaluContext=(activeMkt==='magalu')||(activeMkt==='flex'&&isMagaluQR);
-    if(isMagaluContext){
+    // ═══ FALLBACK MAGALU VAPT/FLEX ═══
+    // Só mostra picker se for QR Magalu detectado (VAPT/FLEX usa QR, não código de barras)
+    if(isMagaluQR){
       var magaluPend=packages.filter(function(p){
         return p.mkt==='magalu'&&p.status==='pendente'&&!p.numeracao&&colSession.indexOf(p.etiqueta)===-1;
       });
