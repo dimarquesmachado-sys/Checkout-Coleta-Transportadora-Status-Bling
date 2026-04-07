@@ -1496,25 +1496,14 @@ function handleScan(rawCode,photo){
   var isMagaluQR=false;
 
   // ── QR MAGALU: {"EXTERNAL_GROUPER_CODE":"1526...","TAG_CODE":"191372159-01",...}
-  if(code.indexOf('EXTERNAL_GROUPER_CODE')!==-1 || rawCode.indexOf('EXTERNAL_GROUPER_CODE')!==-1){
+  // Detecta por regex (mais robusto que indexOf com caracteres especiais)
+  var magaluMatch=code.match(/EXTERNAL.GROUPER.CODE[^0-9]*(\d{10,20})/i)||rawCode.match(/EXTERNAL.GROUPER.CODE[^0-9]*(\d{10,20})/i);
+  if(!magaluMatch) magaluMatch=code.match(/TAG.CODE[^0-9]*(\d{6,15})/i)||rawCode.match(/TAG.CODE[^0-9]*(\d{6,15})/i);
+  
+  if(magaluMatch){
     isMagaluQR=true;
-    var magCode='';
-    // Tenta extrair via regex direto (mais robusto)
-    var extMatch=code.match(/EXTERNAL_GROUPER_CODE[^0-9]*(\d+)/)||rawCode.match(/EXTERNAL_GROUPER_CODE[^0-9]*(\d+)/);
-    if(extMatch) magCode=extMatch[1];
-    // Fallback: tenta JSON.parse
-    if(!magCode){
-      try{
-        var qrMag=JSON.parse(rawCode);
-        if(qrMag.EXTERNAL_GROUPER_CODE){
-          var nums=String(qrMag.EXTERNAL_GROUPER_CODE).match(/^(\d+)/);
-          if(nums) magCode=nums[1];
-        }else if(qrMag.TAG_CODE){
-          magCode=String(qrMag.TAG_CODE).replace(/-/g,'');
-        }
-      }catch(e){}
-    }
-    if(magCode){ code=magCode; toast('QR→'+code,'ok'); }
+    code=magaluMatch[1];
+    toast('QR→'+code,'ok');
     console.log('🔵 QR MAGALU extraído:', code);
   }
 
