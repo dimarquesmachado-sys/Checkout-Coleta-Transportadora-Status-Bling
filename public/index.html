@@ -1493,33 +1493,12 @@ document.getElementById('manualIn').addEventListener('keydown',function(e){if(e.
 function handleScan(rawCode,photo){
   if(!rawCode||!activeMkt) return;
   var code=rawCode.trim().replace(/\s/g,'');
-  var isMagaluQR=false;
-
-  // ── QR MAGALU: {"EXTERNAL_GROUPER_CODE":"1526...","TAG_CODE":"191372159-01",...}
-  if(rawCode.indexOf('EXTERNAL_GROUPER_CODE')!==-1){
-    isMagaluQR=true;
-    try{
-      var qrMag=JSON.parse(rawCode);
-      if(qrMag.EXTERNAL_GROUPER_CODE){
-        var nums=String(qrMag.EXTERNAL_GROUPER_CODE).match(/^\d+/);
-        if(nums) code=nums[0];
-      }else if(qrMag.TAG_CODE){
-        code=String(qrMag.TAG_CODE).replace(/-/g,'');
-      }
-    }catch(e){
-      var m=rawCode.match(/EXTERNAL_GROUPER_CODE[^0-9]*(\d+)/);
-      if(m) code=m[1];
-    }
-    console.log('🔵 QR MAGALU → código:', code);
-  }
 
   // ── Formato 1: JSON ML antigo {"id":"12345","t":"lm"}
-  if(!isMagaluQR){
-    try{
-      var qr=JSON.parse(rawCode);
-      if(qr.id) code=String(qr.id).trim().replace(/\s/g,'');
-    }catch(e){}
-  }
+  try{
+    var qr=JSON.parse(rawCode);
+    if(qr.id) code=String(qr.id).trim().replace(/\s/g,'');
+  }catch(e){}
 
   // ── Formato 2: QR FLEX ML  `^id^Ç^46767751180^,^sender_id^...
   // Extrai o número depois de ^id^ (ignora caracteres especiais entre a chave e o valor)
@@ -1600,18 +1579,7 @@ function handleScan(rawCode,photo){
     beepError(); return;
   }
   if(!pkg){
-    // ═══ FALLBACK MAGALU ═══
-    var isMagaluContext=(activeMkt==='magalu')||(activeMkt==='flex'&&isMagaluQR);
-    if(isMagaluContext){
-      var magaluPend=packages.filter(function(p){
-        return p.mkt==='magalu'&&p.status==='pendente'&&!p.numeracao&&colSession.indexOf(p.etiqueta)===-1;
-      });
-      if(magaluPend.length>0){
-        showMagaluPicker(magaluPend,code,photo);
-        return;
-      }
-    }
-    showFb('Código não encontrado: '+code.substring(0,50),'warn');
+    showFb('Código não encontrado: '+code,'warn');
     beepError(); return;
   }
   // SUCESSO
@@ -1655,39 +1623,6 @@ function showFb(msg,type){
   el.className='fb '+type+' show';
   el.textContent=msg;
   el._t=setTimeout(function(){el.className='fb';},3500);
-}
-
-// ═══ PICKER MAGALU ═══
-function showMagaluPicker(pendentes,code,photo){
-  scanPaused=true;
-  var html='<div style="padding:20px;max-height:70vh;overflow-y:auto">'+
-    '<div style="font-size:15px;font-weight:700;color:var(--am);margin-bottom:12px">🔵 Qual pedido Magalu?</div>'+
-    '<div style="font-size:11px;color:var(--tm);margin-bottom:16px">Código lido: '+code.substring(0,20)+'...</div>';
-  pendentes.forEach(function(p){
-    html+='<div onclick="selectMagaluPkg(\''+p.etiqueta+'\',\''+code+'\')" style="background:var(--s1);border:1px solid var(--b2);border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer">'+
-      '<div style="font-weight:700;color:var(--th)">#'+p.numero+'</div>'+
-      '<div style="font-size:11px;color:var(--tm)">'+p.destinatario+'</div>'+
-      (p.numLoja?'<div style="font-size:10px;color:var(--gr);margin-top:4px">🛒 '+p.numLoja+'</div>':'')+
-      '</div>';
-  });
-  html+='<button onclick="closeTopModal();scanPaused=false;" style="width:100%;padding:12px;background:var(--b2);color:var(--tm);border:none;border-radius:8px;margin-top:8px;cursor:pointer">Cancelar</button>';
-  html+='</div>';
-  openModal(html);
-}
-function selectMagaluPkg(etiqueta,code){
-  closeTopModal();
-  var pkg=null;
-  for(var i=0;i<packages.length;i++){
-    if(packages[i].etiqueta===etiqueta){pkg=packages[i];break;}
-  }
-  if(pkg){
-    pkg.numeracao=code;
-    sv('expv5_pkgs',packages);
-    toast('✓ Associado: #'+pkg.numero,'ok');
-    // Continua o scan
-    scanPaused=false;
-    handleScan(code,null);
-  }
 }
 
 // ═══ VER FOTO DO SCAN ═══
