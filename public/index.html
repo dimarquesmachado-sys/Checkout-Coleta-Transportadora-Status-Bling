@@ -799,7 +799,7 @@ function detectTrackingPkgs(pkgs){
 
         // NF — tenta todos os caminhos
         // numLoja — número da venda no marketplace
-        var numLojaD=(order.numeroPedidoLoja)||(order.numeroloja)||(order.loja&&order.loja.numeroPedido)||'';
+        var numLojaD=(order.numeroPedidoLoja)||(order.numeroLoja)||(order.numeroLojaVirtual)||(order.numeroloja)||(order.loja&&order.loja.numeroPedido)||(order.loja&&order.loja.numeroLojaVirtual)||'';
         // Para ML: numeroPedidoLoja = número loja virtual (2000015489054448)
         // numeracao = número de envio (46625715803)
         var nfDetalhe = (order.notaFiscal&&order.notaFiscal.numero)
@@ -980,7 +980,7 @@ function detectFlexML(mlPkgs, onDone){
           if(nfChaveFlex&&!p.nfChave) p.nfChave=String(nfChaveFlex).replace(/\s/g,'');
           // NF vem de order.notaFiscal — já capturada acima
           // numLoja
-          var numLojaDetalhe=(order.numeroPedidoLoja)||(order.numeroloja)||(order.loja&&order.loja.numeroPedido)||'';
+          var numLojaDetalhe=(order.numeroPedidoLoja)||(order.numeroLoja)||(order.numeroLojaVirtual)||(order.numeroloja)||(order.loja&&order.loja.numeroPedido)||(order.loja&&order.loja.numeroLojaVirtual)||'';
           if(numLojaDetalhe&&!p.numLoja) p.numLoja=String(numLojaDetalhe).trim();
           sv('expv5_pkgs',packages);
           if(i%5===0) syncToServer();
@@ -1330,7 +1330,7 @@ function pullFromBlingMkt(mkt){
         var etiqueta=String((o.numero||o.id||'')).trim().toUpperCase();
         var nf=(o.notaFiscal&&o.notaFiscal.numero)||(o.nfe&&o.nfe.numero)||'';
         var nfChave=(o.notaFiscal&&o.notaFiscal.chave)||(o.nfe&&o.nfe.chave)||'';
-        var numLoja=(o.numeroPedidoLoja)||(o.loja&&o.loja.numeroPedido)||'';
+        var numLoja=(o.numeroPedidoLoja)||(o.numeroLoja)||(o.numeroLojaVirtual)||(o.loja&&o.loja.numeroPedido)||(o.loja&&o.loja.numeroLojaVirtual)||'';
         var numeracaoLista=(o.transporte&&o.transporte.volumes&&o.transporte.volumes[0]&&o.transporte.volumes[0].numeracao)||
                            (o.transporte&&o.transporte.codigoRastreamento)||'';
         // Ignora se for objeto JSON (Magalu às vezes retorna objeto no campo numeracao)
@@ -1424,6 +1424,8 @@ function pullFromBling(){
       console.log('🔍 notasFiscais:', sample.notasFiscais);
       console.log('🔍 loja:', sample.loja);
       console.log('🔍 numeroPedidoLoja:', sample.numeroPedidoLoja);
+      console.log('🔍 numeroLoja:', sample.numeroLoja);
+      console.log('🔍 numeroLojaVirtual:', sample.numeroLojaVirtual);
       console.log('🔍 FULL:', JSON.stringify(sample).substring(0,800));
     }
     var newPkgs=all.map(function(o){
@@ -1441,8 +1443,8 @@ function pullFromBling(){
            ||(o.nota&&o.nota.numero)
            ||'';
       if(nf) nf=String(nf).trim();
-      // Número do pedido no marketplace (Bling guarda em numeroPedidoLoja ou loja.numeroPedido)
-      var numLoja=(o.numeroPedidoLoja)||(o.numeroloja)||(o.loja&&o.loja.numeroPedido)||(o.pedidoLoja&&o.pedidoLoja.numero)||'';
+      // Número do pedido no marketplace (Bling guarda em vários campos possíveis)
+      var numLoja=(o.numeroPedidoLoja)||(o.numeroLoja)||(o.numeroLojaVirtual)||(o.numeroloja)||(o.loja&&o.loja.numeroPedido)||(o.loja&&o.loja.numeroLojaVirtual)||(o.pedidoLoja&&o.pedidoLoja.numero)||'';
       // Extrai tracking da listagem (pode já estar disponível para Shopee, TikTok etc.)
       var numeracaoLista=(o.transporte&&o.transporte.volumes&&o.transporte.volumes[0]&&o.transporte.volumes[0].numeracao)||
                          (o.transporte&&o.transporte.codigoRastreamento)||'';
@@ -1883,76 +1885,52 @@ function handleScan(rawCode,photo){
   if(!rawCode||!activeMkt) return;
   var code=rawCode.trim().replace(/\s/g,'');
 
-  // DEBUG: mostra código bruto
-  console.log('🔍 RAW CODE:', rawCode.substring(0,100)+'...');
-
-  // ── Formato 1: JSON ML antigo {"id":"12345","t":"lm"}
+  // ══ DETECÇÃO QR MAGALU - PRIORIDADE MÁXIMA ══
   var isMagaluQR=false;
-  try{
-    var qr=JSON.parse(rawCode);
-    if(qr.id) code=String(qr.id).trim().replace(/\s/g,'');
-    // ── Formato 1b: QR MAGALU {"EXTERNAL_GROUPER_CODE":"152627...DA74-4933-...","TAG_CODE":"191152999-01",...}
-    if(qr.EXTERNAL_GROUPER_CODE){
-      // Extrai APENAS a parte numérica inicial (remove UUID que vem depois)
-      var extCode=String(qr.EXTERNAL_GROUPER_CODE);
-      var numericPart=extCode.match(/^(\d+)/);
-      if(numericPart){
-        code=numericPart[1];
-      } else {
-        code=extCode.replace(/[^0-9]/g,'');
-      }
-      isMagaluQR=true;
-      console.log('🔵 MAGALU QR (JSON): EXTERNAL_GROUPER_CODE='+extCode+' → código='+code);
-    }
-    if(qr.TAG_CODE){
-      // TAG_CODE tem hífen (191152999-01), remove para matching
-      var tagCode=String(qr.TAG_CODE).replace(/-/g,'').trim();
-      if(!isMagaluQR) code=tagCode;
-      isMagaluQR=true;
-      console.log('🔵 MAGALU QR (JSON): TAG_CODE='+qr.TAG_CODE+' → '+tagCode);
-    }
-  }catch(e){
-    // JSON parse falhou - tenta regex como fallback
-    console.log('🔵 JSON parse falhou:', e.message, '| Tentando regex...');
-  }
   
-  // ── Formato 1c: Detecção via REGEX (fallback se JSON.parse falhou)
-  if(!isMagaluQR && rawCode.indexOf('EXTERNAL_GROUPER_CODE')!==-1){
-    // Regex mais flexível: captura dígitos após ":" e aspas
-    var extMatch=rawCode.match(/EXTERNAL_GROUPER_CODE"?\s*:\s*"?(\d+)/i);
-    console.log('🔵 REGEX EXTERNAL_GROUPER_CODE match:', extMatch);
+  // Se contém EXTERNAL_GROUPER_CODE, é QR Magalu com certeza
+  if(rawCode.indexOf('EXTERNAL_GROUPER_CODE')!==-1 || code.indexOf('EXTERNAL_GROUPER_CODE')!==-1){
+    isMagaluQR=true;
+    // Extrai os primeiros 15-16 dígitos do EXTERNAL_GROUPER_CODE
+    var extMatch=rawCode.match(/EXTERNAL_GROUPER_CODE[^0-9]*(\d{15,16})/);
+    if(!extMatch) extMatch=code.match(/EXTERNAL_GROUPER_CODE[^0-9]*(\d{15,16})/);
     if(extMatch){
       code=extMatch[1];
-      isMagaluQR=true;
-      console.log('🔵 MAGALU QR (regex): EXTERNAL_GROUPER_CODE → '+code);
+      console.log('🔵 MAGALU QR: EXTERNAL_GROUPER_CODE → '+code);
+    } else {
+      // Fallback: pega TAG_CODE
+      var tagMatch=rawCode.match(/TAG_CODE[^0-9]*(\d{9})/);
+      if(!tagMatch) tagMatch=code.match(/TAG_CODE[^0-9]*(\d{9})/);
+      if(tagMatch){
+        code=tagMatch[1];
+        console.log('🔵 MAGALU QR: TAG_CODE → '+code);
+      }
     }
   }
-  if(!isMagaluQR && rawCode.indexOf('TAG_CODE')!==-1){
-    var tagMatch=rawCode.match(/TAG_CODE"?\s*:\s*"?(\d+)-?(\d*)/i);
-    console.log('🔵 REGEX TAG_CODE match:', tagMatch);
+  // Se contém TAG_CODE mas não EXTERNAL
+  else if(rawCode.indexOf('TAG_CODE')!==-1 || code.indexOf('TAG_CODE')!==-1){
+    isMagaluQR=true;
+    var tagMatch=rawCode.match(/TAG_CODE[^0-9]*(\d{9})/);
+    if(!tagMatch) tagMatch=code.match(/TAG_CODE[^0-9]*(\d{9})/);
     if(tagMatch){
-      code=tagMatch[1]+(tagMatch[2]||'');
-      isMagaluQR=true;
-      console.log('🔵 MAGALU QR (regex): TAG_CODE → '+code);
+      code=tagMatch[1];
+      console.log('🔵 MAGALU QR: TAG_CODE → '+code);
     }
   }
 
-  // ── Formato 1d: Código de barras MAGALU (TAG_CODE sem JSON): 191152999-01
+  // ── Formato JSON genérico (ML, etc)
+  if(!isMagaluQR){
+    try{
+      var qr=JSON.parse(rawCode);
+      if(qr.id) code=String(qr.id).trim().replace(/\s/g,'');
+    }catch(e){}
+  }
+
+  // ── Formato código de barras MAGALU: 191152999-01
   if(code.match(/^\d{9}-\d{2}$/)){
     code=code.replace(/-/g,'');
     isMagaluQR=true;
-    console.log('🔵 MAGALU barcode detectado: '+code);
-  }
-  
-  // Se ainda é JSON e tem EXTERNAL ou TAG, força extração
-  if(!isMagaluQR && code.indexOf('{')===0 && (code.indexOf('EXTERNAL')!==-1 || code.indexOf('TAG_CODE')!==-1)){
-    isMagaluQR=true;
-    // Última tentativa: extrai qualquer sequência de 10+ dígitos
-    var anyDigits=code.match(/(\d{10,})/);
-    if(anyDigits){
-      code=anyDigits[1];
-      console.log('🔵 MAGALU QR (força): extraiu dígitos → '+code);
-    }
+    console.log('🔵 MAGALU barcode: '+code);
   }
 
   // ── Formato 2: QR FLEX ML  `^id^Ç^46767751180^,^sender_id^...
