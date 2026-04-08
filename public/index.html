@@ -2062,75 +2062,37 @@ function onFotoSelecionadaFallback(input){
 }
 
 function capturarFotoVeiculo(){
-  var inicioLength = (window.fotosVeiculo || []).length;
-  toast('DEBUG: inicio='+inicioLength,'warn');
-  
   var video = document.getElementById('cameraVideo');
   var canvas = document.getElementById('cameraCanvas');
-  var ctx = canvas.getContext('2d');
-  var btn = document.getElementById('cameraCapture');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  var dataUrl = canvas.toDataURL('image/jpeg', 0.8);
   
-  // Verifica se vídeo está pronto
-  if(!video.videoWidth || video.videoWidth < 100){
-    toast('Aguarde a câmera carregar...','warn');
-    return;
-  }
+  // Array global
+  window._fotos = window._fotos || [];
+  window._fotos.push(dataUrl);
+  var total = window._fotos.length;
   
-  // Evita clique duplo
-  if(btn.dataset.busy === 'true') {
-    toast('DEBUG: clique ignorado','err');
-    return;
-  }
-  btn.dataset.busy = 'true';
-  setTimeout(function(){ btn.dataset.busy = 'false'; }, 600);
+  // Toast
+  alert('Foto '+total+' salva!');
   
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  
-  var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-  
-  // Verifica se imagem foi gerada
-  if(!dataUrl || dataUrl.length < 1000){
-    toast('Erro ao capturar','err');
-    return;
-  }
-  
-  // Garante array global
-  if(!window.fotosVeiculo) window.fotosVeiculo = [];
-  window.fotosVeiculo.push(dataUrl);
-  fotosVeiculo = window.fotosVeiculo;
-  
-  var totalFotos = window.fotosVeiculo.length;
-  toast('DEBUG: adicionada! total='+totalFotos,'ok');
-  
-  // Feedback visual
-  btn.style.transform = 'scale(0.85)';
-  btn.style.background = 'var(--gr)';
-  setTimeout(function(){ 
-    btn.style.transform = ''; 
-    btn.style.background = totalFotos >= 3 ? 'var(--gr)' : '#fff';
-  }, 150);
-  
-  // Atualiza contador
+  // Contador
   var counter = document.getElementById('cameraCounter');
-  if(totalFotos >= 3){
-    counter.textContent = '✅ 3 fotos tiradas!';
-  } else {
-    counter.textContent = '📸 Foto '+(totalFotos+1)+' de 3';
-  }
+  counter.textContent = total >= 3 ? '✅ 3 fotos!' : '📸 Foto '+(total+1)+' de 3';
   
-  // Thumbnails
-  var thumbs = document.getElementById('cameraThumbs');
-  thumbs.innerHTML = window.fotosVeiculo.map(function(f, i){
-    return '<img style="width:60px;height:60px;border-radius:8px;object-fit:cover;border:2px solid #4CAF50;margin-right:8px" src="'+f+'">';
+  // Thumbs
+  document.getElementById('cameraThumbs').innerHTML = window._fotos.map(function(f){
+    return '<img src="'+f+'" style="width:50px;height:50px;margin:4px;border:2px solid lime">';
   }).join('');
   
+  // Sincroniza com variável antiga
+  fotosVeiculo = window._fotos;
   renderFotosVeiculo();
   atualizarBotaoFoto();
   
-  if(totalFotos >= 3){
-    setTimeout(function(){ fecharCameraVeiculo(); }, 600);
+  if(total >= 3){
+    setTimeout(fecharCameraVeiculo, 800);
   }
 }
 
