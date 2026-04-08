@@ -620,6 +620,7 @@ var packages = [], scans = [], sessionToken = '', currentUser = '';
 var colSession = [], activeMkt = '';
 var coletaTimeout = null; // Timer de inatividade (20 min)
 var fotosVeiculo = [], problemaPkgs = [];
+var _tirando_fotos = false; // Flag para impedir reset durante captura
 var camStream = null, barcodeDetector = null, scanning = false, scanPaused = false;
 var lastCode = '', lastCodeAt = 0;
 var encerrandoParcial = false; // flag: encerramento parcial ativo
@@ -1471,6 +1472,7 @@ function renderMktGrid(){
 
 function selectMkt(mkt){
   if(activeMkt===mkt){closeColeta();return;}
+  if(_tirando_fotos) return; // Não muda de card durante captura de fotos
   stopCamera();
   activeMkt=mkt; colSession=[]; scanPaused=false; encerrandoParcial=false; fotosVeiculo=[]; problemaPkgs=[];
   clearColetaTimer(); // Limpa timer anterior se houver
@@ -1629,7 +1631,11 @@ function renderProgress(){
 }
 
 function showConfirm(){
-  document.getElementById('confirmArea').classList.add('show');
+  var confirmArea = document.getElementById('confirmArea');
+  // Se já está visível, não reseta nada - só retorna
+  if(confirmArea.classList.contains('show')) return;
+  
+  confirmArea.classList.add('show');
   document.getElementById('confirmText').innerHTML='Todos os <b style="color:var(--gr)">'+colSession.length+'</b> pacotes de '+(MKT[activeMkt]||{}).icon+' '+(MKT[activeMkt]||{n:activeMkt}).n+' foram bipados.<br><span style="color:var(--tm);font-size:12px">Preencha abaixo para finalizar.</span>';
   document.getElementById('missingArea').classList.remove('show');
   document.getElementById('fotoAlert').style.display='none';
@@ -2062,6 +2068,8 @@ function onFotoSelecionadaFallback(input){
 }
 
 function capturarFotoVeiculo(){
+  _tirando_fotos = true; // Impede reset do array
+  
   var video = document.getElementById('cameraVideo');
   var canvas = document.getElementById('cameraCanvas');
   canvas.width = video.videoWidth || 640;
@@ -2069,30 +2077,29 @@ function capturarFotoVeiculo(){
   canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
   var dataUrl = canvas.toDataURL('image/jpeg', 0.8);
   
-  // Array global
-  window._fotos = window._fotos || [];
-  window._fotos.push(dataUrl);
-  var total = window._fotos.length;
+  // Adiciona direto no array global
+  fotosVeiculo.push(dataUrl);
+  var total = fotosVeiculo.length;
   
-  // Toast
-  alert('Foto '+total+' salva!');
-  
-  // Contador
+  // Atualiza contador no overlay
   var counter = document.getElementById('cameraCounter');
   counter.textContent = total >= 3 ? '✅ 3 fotos!' : '📸 Foto '+(total+1)+' de 3';
   
-  // Thumbs
-  document.getElementById('cameraThumbs').innerHTML = window._fotos.map(function(f){
-    return '<img src="'+f+'" style="width:50px;height:50px;margin:4px;border:2px solid lime">';
+  // Atualiza thumbs no overlay
+  document.getElementById('cameraThumbs').innerHTML = fotosVeiculo.map(function(f){
+    return '<img src="'+f+'" style="width:50px;height:50px;margin:4px;border:2px solid lime;border-radius:6px">';
   }).join('');
   
-  // Sincroniza com variável antiga
-  fotosVeiculo = window._fotos;
+  // Atualiza área de confirmação
   renderFotosVeiculo();
   atualizarBotaoFoto();
   
+  // Feedback
+  toast('Foto '+total+'/3 ✓','ok');
+  
   if(total >= 3){
-    setTimeout(fecharCameraVeiculo, 800);
+    _tirando_fotos = false;
+    setTimeout(fecharCameraVeiculo, 600);
   }
 }
 
