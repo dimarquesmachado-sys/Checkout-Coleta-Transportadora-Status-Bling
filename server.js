@@ -5,7 +5,7 @@ const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BLING_BASE = 'https://www.bling.com.br/Api/v3';
+const BLING_BASE = 'https://api.bling.com.br/Api/v3';
 
 const CLIENT_ID      = process.env.BLING_CLIENT_ID || '';
 const CLIENT_SECRET  = process.env.BLING_CLIENT_SECRET || '';
@@ -55,7 +55,7 @@ app.get('/callback', async (req, res) => {
   if (!code) return res.send('<h2>Erro: código não encontrado na URL.</h2>');
   try {
     const credentials = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
-    const r = await fetch('https://www.bling.com.br/Api/v3/oauth/token', {
+    const r = await fetch('https://api.bling.com.br/Api/v3/oauth/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -142,7 +142,7 @@ async function refreshAccessToken() {
   try {
     console.log('🔄 Renovando token...');
     const credentials = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
-    const r = await fetch('https://www.bling.com.br/Api/v3/oauth/token', {
+    const r = await fetch('https://api.bling.com.br/Api/v3/oauth/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -264,19 +264,20 @@ app.get('/nf-pedido/:blingId', requireAuth, async (req, res) => {
 
 // BATCH: busca NFs para múltiplos pedidos de uma vez só (muito mais rápido)
 app.post('/nfs-batch', requireAuth, async (req, res) => {
-  const { pedidos } = req.body; // Array de { blingId }
+  const { pedidos } = req.body;
   if (!Array.isArray(pedidos) || pedidos.length === 0) {
     return res.json({ nfs: {} });
   }
   
   const TOLERANCE = 2000;
-  const result = {}; // { blingId: { numero, chave } }
+  const result = {};
   const pedidoIds = pedidos.map(p => parseInt(p.blingId)).filter(id => id > 0);
+  if (pedidoIds.length === 0) return res.json({ nfs: {} });
+  
   const minPedido = Math.min(...pedidoIds);
   const maxPedido = Math.max(...pedidoIds);
   
   try {
-    // Busca NFs até cobrir o range de pedidos
     let allNfes = [];
     for (let pagina = 1; pagina <= 20; pagina++) {
       if (pagina > 1) await new Promise(r => setTimeout(r, 300));
@@ -287,14 +288,12 @@ app.post('/nfs-batch', requireAuth, async (req, res) => {
       const nfes = d.data || [];
       if (nfes.length === 0) break;
       allNfes = allNfes.concat(nfes);
-      // Se já passou do range mínimo, para
       const minId = Math.min(...nfes.map(n => n.id));
       if (minId < minPedido - TOLERANCE) break;
     }
     
     console.log(`📋 NFs batch: ${allNfes.length} NFs, ${pedidoIds.length} pedidos`);
     
-    // Cruza NFs com pedidos
     for (const pedidoId of pedidoIds) {
       const candidatas = allNfes
         .filter(n => n.id > pedidoId && n.id <= pedidoId + TOLERANCE)
@@ -313,74 +312,6 @@ app.post('/nfs-batch', requireAuth, async (req, res) => {
   } catch(e) {
     console.error('❌ nfs-batch erro:', e.message);
     res.status(500).json({ error: e.message, nfs: {} });
-  }
-});
-
-app.get('/bling-nf/:blingId', async (req, res) => { // diagnóstico temporário
-
-// ═══ NFs EM LOTE — busca todas de uma vez ═══
-app.post('/nfs-batch', requireAuth, async (req, res) => {
-  const { pedidos } = req.body; // Array de { blingId, numero }
-  if (!Array.isArray(pedidos) || pedidos.length === 0) {
-    return res.json({ nfs: {} });
-  }
-  
-  const TOLERANCE = 2000;
-  const minId = Math.min(...pedidos.map(p => parseInt(p.blingId)));
-  const maxId = Math.max(...pedidos.map(p => parseInt(p.blingId))) + TOLERANCE;
-  
-  console.log(`🧾 NFs batch: ${pedidos.length} pedidos, range ${minId}-${maxId}`);
-  
-  try {
-    // Busca NFs até cobrir o range de IDs
-    let allNfes = [];
-    let pagina = 1;
-    const MAX_PAGES = 15;
-    
-    while (pagina <= MAX_PAGES) {
-      const url = `${BLING_BASE}/nfe?limite=100&pagina=${pagina}`;
-      const r = await blingFetch(url);
-      if (!r.ok) break;
-      
-      const d = await r.json().catch(() => ({}));
-      const nfes = d.data || [];
-      if (nfes.length === 0) break;
-      
-      allNfes = allNfes.concat(nfes);
-      
-      // Se o menor ID desta página já é menor que nosso range, temos todas
-      const pageMinId = Math.min(...nfes.map(n => n.id));
-      if (pageMinId < minId - TOLERANCE) break;
-      
-      pagina++;
-      await new Promise(r => setTimeout(r, 300)); // Rate limit
-    }
-    
-    console.log(`🧾 Buscou ${allNfes.length} NFs em ${pagina} páginas`);
-    
-    // Cruza cada pedido com sua NF
-    const result = {};
-    for (const ped of pedidos) {
-      const pedidoId = parseInt(ped.blingId);
-      const candidatas = allNfes
-        .filter(n => n.id > pedidoId && n.id <= pedidoId + TOLERANCE)
-        .sort((a, b) => a.id - b.id);
-      
-      if (candidatas.length > 0) {
-        const nfe = candidatas[0];
-        result[ped.blingId] = {
-          numero: nfe.numero,
-          chave: nfe.chaveAcesso || nfe.chave || ''
-        };
-      }
-    }
-    
-    console.log(`✅ NFs encontradas: ${Object.keys(result).length}/${pedidos.length}`);
-    res.json({ nfs: result });
-    
-  } catch(e) {
-    console.error('❌ nfs-batch erro:', e.message);
-    res.status(500).json({ error: e.message });
   }
 });
 
@@ -668,85 +599,6 @@ async function supabaseGet(fileName) {
   }
 }
 
-// ─── Persistência de scans no Supabase ─────────────────────────────────────
-async function saveScansToSupabase(scans) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return;
-  try {
-    const jsonData = JSON.stringify(scans);
-    const buffer = Buffer.from(jsonData, 'utf8');
-    await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/sync_scans.json`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-        'x-upsert': 'true'
-      },
-      body: buffer
-    });
-    console.log('💾 Scans salvos no Supabase:', scans.length);
-  } catch(e) {
-    console.error('❌ Erro ao salvar scans no Supabase:', e.message);
-  }
-}
-
-async function loadScansFromSupabase() {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return [];
-  try {
-    const url = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/sync_scans.json`;
-    const r = await fetch(url);
-    if (!r.ok) {
-      console.log('📂 Nenhum scan salvo no Supabase ainda');
-      return [];
-    }
-    const scans = await r.json();
-    console.log('📥 Scans carregados do Supabase:', scans.length);
-    return scans;
-  } catch(e) {
-    console.error('❌ Erro ao carregar scans do Supabase:', e.message);
-    return [];
-  }
-}
-
-async function savePackagesToSupabase(packages) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return;
-  try {
-    const jsonData = JSON.stringify(packages);
-    const buffer = Buffer.from(jsonData, 'utf8');
-    await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/sync_packages.json`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-        'x-upsert': 'true'
-      },
-      body: buffer
-    });
-    console.log('💾 Packages salvos no Supabase:', packages.length);
-  } catch(e) {
-    console.error('❌ Erro ao salvar packages no Supabase:', e.message);
-  }
-}
-
-async function loadPackagesFromSupabase() {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return [];
-  try {
-    const url = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/sync_packages.json`;
-    const r = await fetch(url);
-    if (!r.ok) return [];
-    const packages = await r.json();
-    console.log('📥 Packages carregados do Supabase:', packages.length);
-    return packages;
-  } catch(e) {
-    return [];
-  }
-}
-
-// Carrega dados persistidos na inicialização
-(async () => {
-  sharedScans = await loadScansFromSupabase();
-  sharedPackages = await loadPackagesFromSupabase();
-})();
-
 // Estado de quem está fazendo expedição agora
 const activeUsers = new Map(); // user → {user, mkt, ts}
 
@@ -765,20 +617,18 @@ app.post('/sync/active', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/sync/packages', requireAuth, async (req, res) => {
+app.post('/sync/packages', requireAuth, (req, res) => {
   const { packages } = req.body;
   if(Array.isArray(packages)){
     sharedPackages = packages;
-    savePackagesToSupabase(packages); // Persiste no Supabase (async, não bloqueia)
   }
   res.json({ ok: true });
 });
 
-app.post('/sync/scans', requireAuth, async (req, res) => {
+app.post('/sync/scans', requireAuth, (req, res) => {
   const { scans } = req.body;
   if(Array.isArray(scans)){
     sharedScans = scans;
-    saveScansToSupabase(scans); // Persiste no Supabase (async, não bloqueia)
   }
   res.json({ ok: true });
 });
