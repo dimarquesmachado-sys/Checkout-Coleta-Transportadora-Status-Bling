@@ -905,86 +905,212 @@ function buscarPedido(){
   var termo=(input.value||'').trim().toLowerCase();
   if(!termo){ toast('Digite algo para buscar','warn'); return; }
   
-  // Busca no array local: número, nome, NF, etiqueta
-  var resultados=packages.filter(function(p){
-    if(!p.date || p.date!==todayStr()) return false;
+  // Busca em TODOS os packages (qualquer data) e scans
+  var resultadoPkg=packages.find(function(p){
     if(String(p.numero).toLowerCase()===termo) return true;
     if(String(p.nf).toLowerCase()===termo) return true;
-    if(String(p.etiqueta).toLowerCase().indexOf(termo)!==-1) return true;
+    if(String(p.etiqueta).toLowerCase()===termo) return true;
+    if(String(p.numeracao).toLowerCase()===termo) return true;
+    if(String(p.numLoja).toLowerCase()===termo) return true;
     if(p.destinatario && p.destinatario.toLowerCase().indexOf(termo)!==-1) return true;
     return false;
   });
   
-  if(resultados.length>0){
-    var p=resultados[0];
+  // Busca no histórico de scans
+  var scanHistorico=scans.find(function(s){
+    if(s.tipo==='lote') return false;
+    if(String(s.numero||'').toLowerCase()===termo) return true;
+    if(String(s.etiqueta||'').toLowerCase()===termo) return true;
+    if(s.destinatario && s.destinatario.toLowerCase().indexOf(termo)!==-1) return true;
+    return false;
+  });
+  
+  // Se achou localmente, mostra modal
+  if(resultadoPkg || scanHistorico){
     input.value='';
-    // Abre o card do marketplace e scrolla até o pedido
-    if(activeMkt!==p.mkt && !p.urgente){
-      selectMkt(p.mkt);
-    } else if(p.urgente && activeMkt!=='flex'){
-      selectMkt('flex');
-    }
-    toast('✅ '+p.numero+' · '+p.destinatario.split(' ')[0]+' ('+p.status+')','ok');
-    // Destaca o pedido brevemente
-    setTimeout(function(){
-      var el=document.querySelector('[data-etiqueta="'+p.etiqueta+'"]');
-      if(el){
-        el.scrollIntoView({behavior:'smooth',block:'center'});
-        el.style.outline='2px solid var(--am)';
-        setTimeout(function(){el.style.outline='';},2000);
-      }
-    },300);
+    mostrarResultadoBusca(resultadoPkg, scanHistorico, termo);
     return;
   }
   
   // Não achou local — busca no Bling
-  toast('🔍 Buscando '+termo+' no Bling...','warn');
-  apiFetch('/bling/pedidos/vendas?numero='+encodeURIComponent(termo)+'&limite=5')
+  toast('🔍 Buscando...','warn');
+  apiFetch('/bling/pedidos/vendas?numero='+encodeURIComponent(termo)+'&limite=1')
   .then(function(r){return r.ok?r.json():null;})
   .then(function(d){
     var orders=(d&&d.data)||[];
     if(orders.length===0){
-      toast('Pedido '+termo+' não encontrado','err');
+      toast('Não encontrado: '+termo,'err');
       return;
     }
     var o=orders[0];
-    var situacaoId=Number((o.situacao&&o.situacao.id)||0);
-    if(situacaoId!==24){
-      toast('Pedido '+o.numero+' não está em VERIFICADO (status: '+situacaoId+')','warn');
-      return;
-    }
-    // Adiciona ou atualiza
-    var today=todayStr();
-    var existing=packages.find(function(x){return x.blingId===o.id;});
-    if(existing){
-      existing.date=today;
-      if(existing.status==='coletado'||existing.status==='problema'){
-        existing.status='pendente'; existing.colT=null;
-        toast('↩ Pedido '+o.numero+' resetado para pendente!','ok');
-      } else {
-        toast('Pedido '+o.numero+' já está pendente','ok');
-      }
-    } else {
-      var mkt=lojaToMkt(String((o.loja&&o.loja.id)||'0'))||'melhorenvio';
-      packages.unshift({
-        id:o.id,numero:o.numero,etiqueta:String(o.numero||o.id).trim().toUpperCase(),nf:'',nfChave:'',numLoja:'',
-        destinatario:(o.contato&&o.contato.nome)||'—',
-        servico:'',lojaId:String((o.loja&&o.loja.id)||'0'),
-        mkt:mkt,urgente:false,numeracao:'',
-        blingStatus:24,dataPedido:o.data||'',
-        date:today,pulledAt:nowTS(),
-        status:'pendente',colT:null,obs:'',blingId:o.id
-      });
-      toast('✅ Pedido '+o.numero+' adicionado!','ok');
-    }
-    sv('expv5_pkgs',packages);
-    syncToServer();
-    renderMktGrid();
     input.value='';
+    mostrarResultadoBling(o);
   })
   .catch(function(e){
     toast('Erro: '+e.message,'err');
   });
+}
+
+function mostrarResultadoBusca(pkg, scan, termo){
+  var mktInfo = pkg ? (MKT[pkg.mkt]||{n:pkg.mkt,icon:'📦'}) : {n:'',icon:''};
+  
+  // Encontra lote se foi bipado
+  var loteInfo = null;
+  if(scan){
+    var lote = scans.find(function(s){
+      return s.tipo==='lote' && s.id === scan.loteId;
+    });
+    if(lote) loteInfo = lote;
+  }
+  
+  var html = '<div style="padding:20px;max-width:400px">';
+  html += '<div style="font-size:20px;font-weight:700;margin-bottom:16px">🔍 Resultado</div>';
+  
+  if(pkg){
+    html += '<div style="background:var(--s1);padding:14px;border-radius:12px;margin-bottom:12px">';
+    html += '<div style="font-size:18px;font-weight:700;color:var(--am)">'+mktInfo.icon+' Pedido #'+pkg.numero+'</div>';
+    html += '<div style="margin-top:8px;color:var(--tx)">'+pkg.destinatario+'</div>';
+    
+    // Status
+    var statusColor = pkg.status==='coletado' ? 'var(--gr)' : pkg.status==='problema' ? 'var(--rd)' : 'var(--am)';
+    var statusText = pkg.status==='coletado' ? '✅ Coletado' : pkg.status==='problema' ? '⚠️ Problema' : '⏳ Pendente';
+    html += '<div style="margin-top:10px;padding:8px 12px;background:'+statusColor+'22;color:'+statusColor+';border-radius:8px;font-weight:600;display:inline-block">'+statusText+'</div>';
+    
+    // Detalhes
+    html += '<div style="margin-top:12px;font-size:13px;color:var(--th)">';
+    if(pkg.nf) html += '<div>📄 NF: <span style="color:var(--gr)">'+pkg.nf+'</span></div>';
+    if(pkg.numeracao) html += '<div>📦 Tracking: '+pkg.numeracao+'</div>';
+    if(pkg.servico) html += '<div>🚚 '+pkg.servico+'</div>';
+    html += '<div>📅 Data: '+pkg.date+'</div>';
+    html += '</div>';
+    html += '</div>';
+  }
+  
+  // Info do lote se foi bipado
+  if(loteInfo){
+    html += '<div style="background:var(--gr)22;padding:12px;border-radius:10px;margin-bottom:12px">';
+    html += '<div style="font-weight:600;color:var(--gr)">✅ Bipado no lote</div>';
+    html += '<div style="font-size:13px;color:var(--th);margin-top:6px">';
+    html += '📅 '+loteInfo.date+' às '+loteInfo.time+'<br>';
+    html += '📦 '+loteInfo.qtd+' pacotes no lote';
+    html += '</div></div>';
+  } else if(scan){
+    html += '<div style="background:var(--gr)22;padding:12px;border-radius:10px;margin-bottom:12px">';
+    html += '<div style="font-weight:600;color:var(--gr)">✅ Bipado</div>';
+    html += '<div style="font-size:13px;color:var(--th);margin-top:6px">';
+    html += '📅 '+scan.date+' às '+scan.time;
+    html += '</div></div>';
+  }
+  
+  // Botão para ir ao pedido se estiver pendente hoje
+  if(pkg && pkg.status==='pendente' && pkg.date===todayStr()){
+    html += '<button onclick="irParaPedido(\''+pkg.mkt+'\',\''+pkg.etiqueta+'\','+pkg.urgente+')" style="width:100%;padding:14px;background:var(--am);color:#000;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;margin-top:8px">📍 Ir para o pedido</button>';
+  }
+  
+  html += '<button onclick="fecharModal()" style="width:100%;padding:12px;background:var(--s2);color:var(--th);border:none;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;margin-top:8px">Fechar</button>';
+  html += '</div>';
+  
+  abrirModal(html);
+}
+
+function mostrarResultadoBling(o){
+  var situacaoId=Number((o.situacao&&o.situacao.id)||0);
+  var situacaoNome=(o.situacao&&o.situacao.valor)||'Status '+situacaoId;
+  var mkt=lojaToMkt(String((o.loja&&o.loja.id)||'0'))||'outro';
+  var mktInfo=MKT[mkt]||{n:mkt,icon:'📦'};
+  
+  var html = '<div style="padding:20px;max-width:400px">';
+  html += '<div style="font-size:20px;font-weight:700;margin-bottom:16px">🔍 Resultado do Bling</div>';
+  
+  html += '<div style="background:var(--s1);padding:14px;border-radius:12px;margin-bottom:12px">';
+  html += '<div style="font-size:18px;font-weight:700;color:var(--am)">'+mktInfo.icon+' Pedido #'+o.numero+'</div>';
+  html += '<div style="margin-top:8px;color:var(--tx)">'+(o.contato&&o.contato.nome||'—')+'</div>';
+  
+  // Status no Bling
+  var statusColor = situacaoId===24 ? 'var(--am)' : situacaoId===743515 ? 'var(--gr)' : 'var(--th)';
+  html += '<div style="margin-top:10px;padding:8px 12px;background:'+statusColor+'22;color:'+statusColor+';border-radius:8px;font-weight:600;display:inline-block">'+situacaoNome+'</div>';
+  
+  html += '<div style="margin-top:12px;font-size:13px;color:var(--th)">';
+  html += '<div>🏪 '+mktInfo.n+'</div>';
+  if(o.data) html += '<div>📅 '+o.data.substring(0,10)+'</div>';
+  html += '</div>';
+  html += '</div>';
+  
+  // Se está em VERIFICADO, oferece adicionar
+  if(situacaoId===24){
+    html += '<button onclick="adicionarPedidoBling('+o.id+')" style="width:100%;padding:14px;background:var(--gr);color:#fff;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;margin-top:8px">➕ Adicionar para bipar</button>';
+  }
+  
+  html += '<button onclick="fecharModal()" style="width:100%;padding:12px;background:var(--s2);color:var(--th);border:none;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;margin-top:8px">Fechar</button>';
+  html += '</div>';
+  
+  abrirModal(html);
+  window._ultimoPedidoBling = o; // guarda para usar no adicionar
+}
+
+function adicionarPedidoBling(blingId){
+  var o = window._ultimoPedidoBling;
+  if(!o || o.id !== blingId) return;
+  
+  var today=todayStr();
+  var existing=packages.find(function(x){return x.blingId===o.id;});
+  if(existing){
+    existing.date=today;
+    if(existing.status==='coletado'||existing.status==='problema'){
+      existing.status='pendente'; existing.colT=null;
+    }
+  } else {
+    var mkt=lojaToMkt(String((o.loja&&o.loja.id)||'0'))||'melhorenvio';
+    packages.unshift({
+      id:o.id,numero:o.numero,etiqueta:String(o.numero||o.id).trim().toUpperCase(),nf:'',nfChave:'',numLoja:'',
+      destinatario:(o.contato&&o.contato.nome)||'—',
+      servico:'',lojaId:String((o.loja&&o.loja.id)||'0'),
+      mkt:mkt,urgente:false,numeracao:'',
+      blingStatus:24,dataPedido:o.data||'',
+      date:today,pulledAt:nowTS(),
+      status:'pendente',colT:null,obs:'',blingId:o.id
+    });
+  }
+  sv('expv5_pkgs',packages);
+  syncToServer();
+  renderMktGrid();
+  fecharModal();
+  toast('✅ Pedido '+o.numero+' adicionado!','ok');
+}
+
+function irParaPedido(mkt, etiqueta, urgente){
+  fecharModal();
+  if(urgente && activeMkt!=='flex'){
+    selectMkt('flex');
+  } else if(!urgente && activeMkt!==mkt){
+    selectMkt(mkt);
+  }
+  setTimeout(function(){
+    var el=document.querySelector('[data-etiqueta="'+etiqueta+'"]');
+    if(el){
+      el.scrollIntoView({behavior:'smooth',block:'center'});
+      el.style.outline='2px solid var(--am)';
+      setTimeout(function(){el.style.outline='';},2000);
+    }
+  },300);
+}
+
+function abrirModal(html){
+  var overlay = document.getElementById('buscaModal');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'buscaModal';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+    overlay.onclick = function(e){ if(e.target===overlay) fecharModal(); };
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = '<div style="background:var(--bg);border-radius:16px;max-height:90vh;overflow:auto">'+html+'</div>';
+  overlay.style.display = 'flex';
+}
+
+function fecharModal(){
+  var overlay = document.getElementById('buscaModal');
+  if(overlay) overlay.style.display = 'none';
 }
 
 function buscarPedidoManual(){
