@@ -1318,6 +1318,10 @@ function pullFromBling(){
         p.status=ex.status;
         p.colT=ex.colT;
         p.obs=ex.obs;
+      } else if(ex.status==='pendente' && p.blingStatus===24){
+        // ⚠ PEDIDO ANTIGO AINDA PENDENTE: estava pendente em dia anterior e ainda está VERIFICADO
+        // Traz para hoje para aparecer na expedição
+        console.log('📦 Pedido #'+p.numero+' ainda VERIFICADO (era de '+ex.date+') → aparece hoje');
       } else if(ex.status==='coletado'||ex.status==='problema'){
         // Dia anterior mas já está DESPACHADO no Bling: ignora (não é devolução)
         // Não faz nada, mantém como pendente do pull
@@ -2072,10 +2076,7 @@ function onFotoSelecionadaFallback(input){
 }
 
 function capturarFotoVeiculo(){
-  _tirando_fotos = true; // Impede reset do array
-  
-  // DEBUG: mostrar estado do array ANTES
-  var antesLength = fotosVeiculo.length;
+  _tirando_fotos = true;
   
   var video = document.getElementById('cameraVideo');
   var canvas = document.getElementById('cameraCanvas');
@@ -2084,12 +2085,8 @@ function capturarFotoVeiculo(){
   canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
   var dataUrl = canvas.toDataURL('image/jpeg', 0.8);
   
-  // Adiciona direto no array global
   fotosVeiculo.push(dataUrl);
   var total = fotosVeiculo.length;
-  
-  // DEBUG: mostrar antes e depois
-  toast('ANTES:'+antesLength+' DEPOIS:'+total,'warn');
   
   // Atualiza contador no overlay
   var counter = document.getElementById('cameraCounter');
@@ -2104,7 +2101,6 @@ function capturarFotoVeiculo(){
   renderFotosVeiculo();
   atualizarBotaoFoto();
   
-  // Feedback após debug
   toast('Foto '+total+'/3 ✓','ok');
   
   if(total >= 3){
@@ -3356,6 +3352,23 @@ function renderActiveUsers(activeUsers){
 // ═══ INIT ═══
 function initApp(){
   packages=ld('expv5_pkgs',[]); scans=ld('expv5_scans',[]);
+  
+  // ═══ PEDIDOS PENDENTES DE DIAS ANTERIORES → APARECEM HOJE ═══
+  // Se ainda está pendente (não foi bipado), atualiza date para hoje
+  // Assim aparece na tela de expedição atual
+  var hoje = todayStr();
+  var atualizados = 0;
+  packages.forEach(function(p){
+    if(p.status === 'pendente' && p.date && p.date !== hoje){
+      p.date = hoje;
+      atualizados++;
+    }
+  });
+  if(atualizados > 0){
+    sv('expv5_pkgs', packages);
+    console.log('📦 '+atualizados+' pedidos pendentes de dias anteriores atualizados para hoje');
+  }
+  
   // Limpa valores incorretos no localStorage
   var cleaned=false;
   packages.forEach(function(p){
