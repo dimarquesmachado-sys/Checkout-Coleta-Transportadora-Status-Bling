@@ -176,7 +176,7 @@ setInterval(async () => {
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-async function blingFetch(url, options = {}, retries = 5) {
+async function blingFetch(url, options = {}, retries = 3) {
   for (let i = 0; i < retries; i++) {
     if (tokenExpires > 0 && Date.now() > tokenExpires - 60 * 1000) {
       await refreshAccessToken();
@@ -193,9 +193,8 @@ async function blingFetch(url, options = {}, retries = 5) {
     });
 
     if (r.status === 429) {
-      // Rate limit: espera mais tempo a cada tentativa
-      const waitMs = 3000 + (i * 2000); // 3s, 5s, 7s, 9s, 11s
-      console.warn(`⚠ Rate limit (429) — aguardando ${waitMs}ms (tentativa ${i+1}/${retries})`);
+      const waitMs = i === 0 ? 2000 : Math.pow(2, i) * 1000;
+      console.warn(`⚠ Rate limit (429) — aguardando ${waitMs}ms`);
       await sleep(waitMs);
       continue;
     }
@@ -280,9 +279,8 @@ app.post('/nfs-batch', requireAuth, async (req, res) => {
   
   try {
     let allNfes = [];
-    // Limita a 10 páginas para evitar rate limit
-    for (let pagina = 1; pagina <= 10; pagina++) {
-      if (pagina > 1) await new Promise(r => setTimeout(r, 1500)); // 1.5s entre páginas
+    for (let pagina = 1; pagina <= 20; pagina++) {
+      if (pagina > 1) await new Promise(r => setTimeout(r, 300));
       const url = `${BLING_BASE}/nfe?limite=100&pagina=${pagina}`;
       const r = await blingFetch(url);
       if (!r.ok) break;
@@ -365,33 +363,18 @@ app.all('/bling/*', requireAuth, async (req, res) => {
 
   try {
     const writeMethod = ['POST','PUT','PATCH','DELETE'].includes(req.method);
-    if(writeMethod) await sleep(1500); // Aumentado para evitar rate limit
-
-    // Log para situações (DESPACHADOS)
-    if(url.includes('/situacoes/')){
-      console.log('📦 Atualizando situação:', req.method, url);
-    }
+    if(writeMethod) await sleep(700);
 
     const r = await blingFetch(url, {
       method: req.method,
       body: ['GET','HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
     });
 
-    // Para PATCH de situações, resposta vazia (204) é sucesso
-    if(url.includes('/situacoes/') && (r.status === 200 || r.status === 204)){
-      console.log('✅ Situação atualizada com sucesso');
-      return res.status(200).json({ ok: true });
-    }
-
     const data = await r.json().catch(() => ({}));
     // Log NF responses para diagnóstico
     if(url.includes('/nfe')){
       console.log('🧾 NF request:', url);
       console.log('🧾 NF response:', JSON.stringify(data).substring(0,300));
-    }
-    // Log erros de situação
-    if(url.includes('/situacoes/') && r.status !== 200){
-      console.log('❌ Erro situação:', r.status, JSON.stringify(data).substring(0,200));
     }
     // Bling 401 vira 502 para não confundir com erro de sessão do nosso servidor
     const statusOut = r.status === 401 ? 502 : r.status;
@@ -530,68 +513,6 @@ app.get('/admin/migrar-verificados', async (req, res) => {
 });
 
 app.get('/admin/migrar-status', (req, res) => {
-  res.json({ rodando: migrationRunning, log: migrationLog });
-});
-
-// Reenviar status DESPACHADOS apenas para pedidos já coletados no sistema
-app.get('/admin/reenviar-despachados', async (req, res) => {
-  try {
-    // Usa packages do servidor (memória compartilhada)
-    const packages = sharedPackages || [];
-    
-    // Filtra coletados das últimas 72h
-    const agora = Date.now();
-    const coletados = packages.filter(p => {
-      if(p.status !== 'coletado' && p.status !== 'problema') return false;
-      if(!p.colT) return false;
-      const colTime = new Date(p.colT).getTime();
-      const horasDesde = (agora - colTime) / (1000*60*60);
-      return horasDesde <= 72; // últimas 72h
-    });
-    
-    if(coletados.length === 0) {
-      return res.json({ status: 'nenhum', msg: 'Nenhum pedido coletado recente para atualizar', packages_total: packages.length });
-    }
-    
-    res.json({ 
-      status: 'iniciado', 
-      total: coletados.length,
-      msg: `Reenviando ${coletados.length} pedidos para DESPACHADOS. Acesse /admin/reenviar-status para acompanhar.`
-    });
-    
-    // Processa em background
-    (async () => {
-      migrationLog = [`🔄 Reenviando ${coletados.length} pedidos coletados para DESPACHADOS...`];
-      migrationRunning = true;
-      let ok = 0, erros = 0;
-      
-      for(const p of coletados) {
-        try {
-          await sleep(2500); // 2.5s entre cada
-          const patch = await blingFetch(`${BLING_BASE}/pedidos/vendas/${p.blingId}/situacoes/743515`, { method: 'PATCH' });
-          if(patch.ok || patch.status === 204) {
-            ok++;
-            migrationLog.push(`✅ #${p.numero} → DESPACHADOS`);
-          } else {
-            erros++;
-            migrationLog.push(`❌ #${p.numero} erro: ${patch.status}`);
-          }
-        } catch(e) {
-          erros++;
-          migrationLog.push(`❌ #${p.numero} erro: ${e.message}`);
-        }
-      }
-      
-      migrationLog.push(`\n✅ CONCLUÍDO! ${ok} atualizados, ${erros} erros`);
-      migrationRunning = false;
-    })();
-    
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get('/admin/reenviar-status', (req, res) => {
   res.json({ rodando: migrationRunning, log: migrationLog });
 });
 
@@ -744,48 +665,6 @@ app.get('/photos/lote/:loteId/:idx', requireAuth, async (req, res) => {
   if(!photo) return res.status(404).json({ error: 'Foto não encontrada' });
   if(photo.startsWith('http')) return res.json({ url: photo });
   res.json({ photo });
-});
-
-// Endpoint para atualizar pedidos para DESPACHADOS em massa (com delay)
-app.post('/admin/despachar-lote', requireAuth, async (req, res) => {
-  const { blingIds } = req.body;
-  if (!Array.isArray(blingIds) || blingIds.length === 0) {
-    return res.status(400).json({ error: 'Envie array de blingIds' });
-  }
-  
-  console.log(`📦 Despachando ${blingIds.length} pedidos em lote...`);
-  const results = [];
-  
-  for (let i = 0; i < blingIds.length; i++) {
-    const id = blingIds[i];
-    try {
-      // Espera 3s entre cada requisição
-      if (i > 0) await sleep(3000);
-      
-      const url = `${BLING_BASE}/pedidos/vendas/${id}/situacoes/743515`;
-      console.log(`📦 [${i+1}/${blingIds.length}] Despachando #${id}...`);
-      
-      const r = await blingFetch(url, { method: 'PATCH' });
-      
-      if (r.ok || r.status === 204) {
-        console.log(`✅ DESPACHADO: #${id}`);
-        results.push({ id, ok: true });
-      } else {
-        const txt = await r.text().catch(() => '');
-        console.log(`❌ Falha #${id}: ${r.status} ${txt.substring(0,100)}`);
-        results.push({ id, ok: false, status: r.status });
-      }
-    } catch (e) {
-      console.error(`❌ Erro #${id}:`, e.message);
-      results.push({ id, ok: false, error: e.message });
-    }
-  }
-  
-  const ok = results.filter(r => r.ok).length;
-  const fail = results.filter(r => !r.ok).length;
-  console.log(`📦 Lote finalizado: ${ok} OK, ${fail} falhas`);
-  
-  res.json({ total: blingIds.length, ok, fail, results });
 });
 
 app.listen(PORT, () => {
