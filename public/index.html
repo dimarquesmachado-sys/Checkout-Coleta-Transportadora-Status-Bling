@@ -2360,23 +2360,37 @@ function finalizeColeta(){
 }
 function updateBlingStatus(id){
   // Bling v3: PATCH /pedidos/vendas/{id}/situacoes/{idSituacao} sem body
+  console.log('🔄 Tentando DESPACHADOS para #'+id);
   apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH'})
   .then(function(r){
-    if(r.ok){
+    if(r.ok || r.status === 204){
       console.log('✅ DESPACHADO: #'+id);
+      toast('✅ #'+id+' → DESPACHADO','ok');
     } else {
       return r.text().then(function(txt){
-        console.warn('⚠ Falha PATCH blingId='+id+' status='+r.status+' resp='+txt.substring(0,100));
-        // Retry após 3s
+        console.warn('⚠ Falha PATCH blingId='+id+' status='+r.status+' resp='+txt.substring(0,200));
+        toast('⚠ Falha ao atualizar #'+id+' ('+r.status+')','err');
+        // Retry após 5s
         setTimeout(function(){
-          apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH',headers:{'Content-Type':'application/json'},body:body})
-          .then(function(r2){console.log(r2.ok?'✅ Retry OK #'+id:'❌ Retry falhou #'+id+': '+r2.status);})
-          .catch(function(){});
-        },3000);
+          console.log('🔄 Retry DESPACHADOS para #'+id);
+          apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH'})
+          .then(function(r2){
+            if(r2.ok || r2.status === 204){
+              console.log('✅ Retry OK #'+id);
+              toast('✅ Retry OK #'+id,'ok');
+            } else {
+              console.log('❌ Retry falhou #'+id+': '+r2.status);
+            }
+          })
+          .catch(function(e){console.error('❌ Retry erro:',e.message);});
+        },5000);
       });
     }
   })
-  .catch(function(e){console.error('❌ updateBlingStatus erro:',e.message);});
+  .catch(function(e){
+    console.error('❌ updateBlingStatus erro:',e.message);
+    toast('❌ Erro ao atualizar #'+id,'err');
+  });
 }
 
 // ═══ DIA ═══
