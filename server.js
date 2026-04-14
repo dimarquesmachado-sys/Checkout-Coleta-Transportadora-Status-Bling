@@ -746,6 +746,48 @@ app.get('/photos/lote/:loteId/:idx', requireAuth, async (req, res) => {
   res.json({ photo });
 });
 
+// Endpoint para atualizar pedidos para DESPACHADOS em massa (com delay)
+app.post('/admin/despachar-lote', requireAuth, async (req, res) => {
+  const { blingIds } = req.body;
+  if (!Array.isArray(blingIds) || blingIds.length === 0) {
+    return res.status(400).json({ error: 'Envie array de blingIds' });
+  }
+  
+  console.log(`📦 Despachando ${blingIds.length} pedidos em lote...`);
+  const results = [];
+  
+  for (let i = 0; i < blingIds.length; i++) {
+    const id = blingIds[i];
+    try {
+      // Espera 3s entre cada requisição
+      if (i > 0) await sleep(3000);
+      
+      const url = `${BLING_BASE}/pedidos/vendas/${id}/situacoes/743515`;
+      console.log(`📦 [${i+1}/${blingIds.length}] Despachando #${id}...`);
+      
+      const r = await blingFetch(url, { method: 'PATCH' });
+      
+      if (r.ok || r.status === 204) {
+        console.log(`✅ DESPACHADO: #${id}`);
+        results.push({ id, ok: true });
+      } else {
+        const txt = await r.text().catch(() => '');
+        console.log(`❌ Falha #${id}: ${r.status} ${txt.substring(0,100)}`);
+        results.push({ id, ok: false, status: r.status });
+      }
+    } catch (e) {
+      console.error(`❌ Erro #${id}:`, e.message);
+      results.push({ id, ok: false, error: e.message });
+    }
+  }
+  
+  const ok = results.filter(r => r.ok).length;
+  const fail = results.filter(r => !r.ok).length;
+  console.log(`📦 Lote finalizado: ${ok} OK, ${fail} falhas`);
+  
+  res.json({ total: blingIds.length, ok, fail, results });
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
   console.log(`📦 Client ID: ${CLIENT_ID ? '✓ configurado' : '✗ NÃO configurado'}`);
