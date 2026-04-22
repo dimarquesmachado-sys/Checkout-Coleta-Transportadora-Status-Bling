@@ -1542,7 +1542,7 @@ function clearColetaTimer(){
 
 function startColetaTimer(){
   if(coletaDeadline) return; // Já iniciou
-  coletaDeadline = Date.now() + 20*60*1000; // 20 minutos
+  coletaDeadline = Date.now() + 25*60*1000; // 25 minutos
   
   // Atualiza contador a cada segundo
   coletaTimerInterval = setInterval(function(){
