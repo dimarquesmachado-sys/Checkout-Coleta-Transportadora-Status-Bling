@@ -2660,15 +2660,41 @@ function getPhotoFromServer(key, cb){
 }
 
 function syncToServer(){
-  var today=todayStr();
-  var pkgHoje=packages.filter(function(p){return p.date===today;});
-  var scanHoje=stripPhotos(scans.filter(function(s){return s.date===today;}));
-  // Inclui estado ativo (quem está fazendo expedição de qual loja)
-  var activeState=activeMkt?{user:currentUser,mkt:activeMkt,ts:Date.now()}:null;
-  apiFetch('/sync/packages',{method:'POST',body:JSON.stringify({packages:pkgHoje})}).catch(function(){});
-  apiFetch('/sync/scans',{method:'POST',body:JSON.stringify({scans:scanHoje})}).catch(function(){});
-  if(activeState) apiFetch('/sync/active',{method:'POST',body:JSON.stringify(activeState)}).catch(function(){});
-  else apiFetch('/sync/active',{method:'POST',body:JSON.stringify({user:currentUser,mkt:null,ts:Date.now()})}).catch(function(){});
+  // Envia TODOS os pacotes e TODOS os scans, não só os de hoje.
+  // Isso permite o histórico enxergar dias anteriores, como ontem.
+  var pkgHoje = packages;
+  var scanHoje = stripPhotos(scans);
+
+  // Inclui estado ativo: quem está fazendo expedição de qual loja
+  var activeState = activeMkt
+    ? { user: currentUser, mkt: activeMkt, ts: Date.now() }
+    : null;
+
+  apiFetch('/sync/packages', {
+    method: 'POST',
+    body: JSON.stringify({ packages: pkgHoje })
+  }).catch(function(){});
+
+  apiFetch('/sync/scans', {
+    method: 'POST',
+    body: JSON.stringify({ scans: scanHoje })
+  }).catch(function(){});
+
+  if(activeState){
+    apiFetch('/sync/active', {
+      method: 'POST',
+      body: JSON.stringify(activeState)
+    }).catch(function(){});
+  } else {
+    apiFetch('/sync/active', {
+      method: 'POST',
+      body: JSON.stringify({
+        user: currentUser,
+        mkt: null,
+        ts: Date.now()
+      })
+    }).catch(function(){});
+  }
 }
 
 function loadFromServer(cb){
