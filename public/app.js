@@ -2438,18 +2438,7 @@ function renderHistContent(){
     }
   }
 
-if(histLoteAberto){
-  var aberto = document.getElementById(histLoteAberto);
-  if(aberto){
-    aberto.style.display = 'block';
-    var header = aberto.previousElementSibling;
-    if(header){
-      var arrow = header.querySelector('.lote-arrow');
-      if(arrow) arrow.textContent = '▲';
-    }
-  }
-}
-}
+document.getElementById('histContent').innerHTML=html;
 }
 // ═══ MODAL — fechar com botão Voltar Android ═══
 function closeTopModal(){
