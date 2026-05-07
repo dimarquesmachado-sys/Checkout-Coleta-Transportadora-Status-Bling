@@ -73,6 +73,24 @@ function renderMktGrid(){
 function selectMkt(mkt){
   if(activeMkt===mkt){closeColeta();return;}
   if(_tirando_fotos) return; // Não muda de card durante captura de fotos
+  // Limpa scans da sessão atual ANTES de trocar de card (evita órfãos duplicados)
+  if(colSession.length>0){
+    var todayK=todayStr();
+    var removeu=false;
+    for(var iK=scans.length-1;iK>=0;iK--){
+      if(scans[iK].tipo==='lote') continue;
+      if(scans[iK].date!==todayK) continue;
+      if(scans[iK].loteId) continue; // Se já tem loteId, foi finalizado, mantém
+      if(colSession.indexOf(scans[iK].etiqueta)!==-1){
+        scans.splice(iK,1);
+        removeu=true;
+      }
+    }
+    if(removeu){
+      sv('expv5_scans',scans);
+      syncToServer(); // propaga limpeza para o servidor (evita scan órfão voltar)
+    }
+  }
   stopCamera();
   activeMkt=mkt; colSession=[]; scanPaused=false; encerrandoParcial=false; fotosVeiculo=[]; problemaPkgs=[];
   clearColetaTimer(); // Limpa timer anterior se houver
@@ -100,15 +118,20 @@ function closeColeta(){
   // (evita duplicatas ao re-bipar a mesma etiqueta depois)
   if(colSession.length>0){
     var today=todayStr();
+    var removeu2=false;
     for(var i=scans.length-1;i>=0;i--){
       if(scans[i].tipo==='lote') continue;
       if(scans[i].date!==today) continue;
       if(scans[i].loteId) continue; // Se já tem loteId, foi finalizado, mantém
       if(colSession.indexOf(scans[i].etiqueta)!==-1){
         scans.splice(i,1);
+        removeu2=true;
       }
     }
-    sv('expv5_scans',scans);
+    if(removeu2){
+      sv('expv5_scans',scans);
+      syncToServer(); // propaga limpeza para o servidor (evita scan órfão voltar)
+    }
   }
   activeMkt=''; colSession=[]; scanPaused=false; encerrandoParcial=false;
   clearColetaTimer();
@@ -203,7 +226,7 @@ function renderPkgList(){
         (p.nf?'<span style="color:var(--gr)">NF '+p.nf+'</span>':
               '<span style="color:var(--th);font-style:italic">NF ...</span>')+
         (p.numLoja?'<span style="color:var(--bl)"> · 🛒 '+p.numLoja+'</span>':'')+
-   (p.numeracao?'<span style="color:var(--tm)"> · 📦 '+p.numeracao+'</span>':'')+
+        (p.numeracao?'<span style="color:var(--tm)"> · 📦 '+p.numeracao+'</span>':'')+
       '</div>'+
       '<div class="pkg-dest">'+p.destinatario+'</div>'+
       '</div>'+
