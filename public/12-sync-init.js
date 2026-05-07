@@ -325,19 +325,3 @@ function onScanImgError(img){
     img.style.opacity='.15';
   }
 }
-Extension
-Extension Embed
-
-
-
-Actions
-
-Your Business
-
-Settings
-
-Help
-Search Amazon
-
-United States
-Search Amazon
