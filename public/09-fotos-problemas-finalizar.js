@@ -295,13 +295,15 @@ var obs=document.getElementById('obsLote').value.trim();
   var loteId='lote_'+activeMkt+'_'+Date.now();
   var qtdEntregues=colSession.length-problemaPkgs.filter(function(e){return colSession.indexOf(e)!==-1;}).length;
   // Marca loteId em cada scan da sessão para associação correta no histórico
+  // IMPORTANTE: NÃO filtra por mkt — quando lote é FLEX, scans podem ter mkt='ml','shopee', etc.
+  // A combinação etiqueta+date+tipo já é única o suficiente.
   colSession.forEach(function(chave){
   for(var i=0;i<scans.length;i++){
     if(
       scans[i].etiqueta===chave &&
       scans[i].date===loteDate &&
       scans[i].tipo!=='lote' &&
-      scans[i].mkt===activeMkt
+      !scans[i].loteId
     ){
       scans[i].loteId = loteId;
     }
@@ -336,18 +338,27 @@ scans.unshift({tipo:'lote',id:loteId,mkt:activeMkt,date:loteDate,time:now,qtd:qt
 }
 function updateBlingStatus(id){
   // Bling v3: PATCH /pedidos/vendas/{id}/situacoes/{idSituacao} sem body
+  console.log('🚚 Movendo para DESPACHADOS: #'+id);
   apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH'})
   .then(function(r){
     if(r.ok){
       console.log('✅ DESPACHADO: #'+id);
     } else {
       return r.text().then(function(txt){
-        console.warn('⚠ Falha PATCH blingId='+id+' status='+r.status+' resp='+txt.substring(0,100));
-        // Retry após 3s
+        console.warn('⚠ Falha PATCH blingId='+id+' status='+r.status+' resp='+txt.substring(0,200));
+        // Retry após 3s — sem body (PATCH na situação não precisa de body)
         setTimeout(function(){
-          apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH',headers:{'Content-Type':'application/json'},body:body})
-          .then(function(r2){console.log(r2.ok?'✅ Retry OK #'+id:'❌ Retry falhou #'+id+': '+r2.status);})
-          .catch(function(){});
+          apiFetch('/bling/pedidos/vendas/'+id+'/situacoes/743515',{method:'PATCH'})
+          .then(function(r2){
+            if(r2.ok){
+              console.log('✅ Retry OK #'+id);
+            } else {
+              return r2.text().then(function(txt2){
+                console.error('❌ Retry falhou #'+id+': status='+r2.status+' resp='+txt2.substring(0,200));
+              });
+            }
+          })
+          .catch(function(e){console.error('❌ Retry erro #'+id+':',e.message);});
         },3000);
       });
     }
